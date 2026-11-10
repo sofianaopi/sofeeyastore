@@ -46,6 +46,9 @@ const ICONS = {
   star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1z"/>',
   truck: '<path d="M1 4h14v12H1zM15 9h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
   wa: '<path d="M21 11.5a8.4 8.4 0 0 1-12.5 7.4L3 21l2.1-5.3A8.5 8.5 0 1 1 21 11.5z"/>',
+  rotate: '<rect x="4" y="2" width="10" height="16" rx="2"/><path d="M18 8a6 6 0 0 1 2 8M20 20v-4h-4"/>',
+  phone: '<rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/>',
+  tablet: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M18 12h.01"/>',
   user_plus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
 };
 function icon(name, cls = '') {
@@ -422,7 +425,7 @@ const COURIERS = [
   { id: 'Kurir toko', type: 'instan', site: '' },
 ];
 function courierInfo(id) { return COURIERS.find((c) => c.id === id) || { id, type: 'paket', site: '' }; }
-function trackURL(sh) { if (!sh || !sh.resi) return ''; if (/^https?:\/\//i.test(sh.resi)) return sh.resi; return courierInfo(sh.courier).type === 'paket' ? 'https://cekresi.com/?noresi=' + encodeURIComponent(sh.resi) : ''; }
+function trackURL(sh) { if (sh && sh.tracking_link) return sh.tracking_link; if (!sh || !sh.resi) return ''; if (/^https?:\/\//i.test(sh.resi)) return sh.resi; return courierInfo(sh.courier).type === 'paket' ? 'https://cekresi.com/?noresi=' + encodeURIComponent(sh.resi) : ''; }
 function waLink(phone, text) { const n = String(phone || '').replace(/\D/g, '').replace(/^0/, '62'); return 'https://wa.me/' + n + '?text=' + encodeURIComponent(text); }
 function feePresets() { try { const a = JSON.parse(App.settings.fee_presets || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.label) : []; } catch (e) { return []; } }
 const PAY = { cash: 'Tunai', qris: 'QRIS', transfer: 'Debit/Transfer' };

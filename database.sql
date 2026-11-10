@@ -218,12 +218,28 @@ CREATE TABLE IF NOT EXISTS shipments (
   address TEXT NULL,
   fee DECIMAL(14,2) NOT NULL DEFAULT 0,
   resi VARCHAR(100) NOT NULL DEFAULT '',
-  status VARCHAR(20) NOT NULL DEFAULT 'baru',   -- baru | dikirim | selesai | batal
+  status VARCHAR(20) NOT NULL DEFAULT 'baru',   -- baru | dipesan | dikirim | selesai | batal
   note VARCHAR(500) NOT NULL DEFAULT '',
   cashier VARCHAR(200) NOT NULL DEFAULT '',
+  provider VARCHAR(20) NOT NULL DEFAULT 'manual',   -- manual | biteship
+  biteship_order_id VARCHAR(60) NOT NULL DEFAULT '',
+  courier_code VARCHAR(30) NOT NULL DEFAULT '',
+  courier_service VARCHAR(40) NOT NULL DEFAULT '',
+  tracking_id VARCHAR(80) NOT NULL DEFAULT '',
+  tracking_link VARCHAR(500) NOT NULL DEFAULT '',
+  bs_status VARCHAR(40) NOT NULL DEFAULT '',
+  driver VARCHAR(200) NOT NULL DEFAULT '',
+  area_id VARCHAR(80) NOT NULL DEFAULT '',
+  area_name VARCHAR(200) NOT NULL DEFAULT '',
+  postal_code VARCHAR(10) NOT NULL DEFAULT '',
+  lat DOUBLE NULL,
+  lng DOUBLE NULL,
+  weight INT NOT NULL DEFAULT 0,
+  cost DECIMAL(14,2) NOT NULL DEFAULT 0,
   created DATETIME NULL,
   updated DATETIME NULL,
-  INDEX idx_ship_status (status)
+  INDEX idx_ship_status (status),
+  INDEX idx_ship_bs (biteship_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS signals (
@@ -255,7 +271,7 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('work_schedule', '{"startTime":"08:00","toleranceMinutes":15}', NOW(), NOW()),
  ('store_network', '{"ips":"","wifiName":""}', NOW(), NOW()),
  ('fee_presets', '[{"label":"Ongkir Maxim","amount":15000},{"label":"Ongkir Grab","amount":20000},{"label":"Ongkir J&T","amount":12000},{"label":"Bungkus kado","amount":5000}]', NOW(), NOW()),
- ('schema_version', '2', NOW(), NOW());
+ ('schema_version', '3', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());

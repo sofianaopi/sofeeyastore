@@ -21,3 +21,11 @@ DirectoryIndex index.html
     Header set Cache-Control "public, max-age=604800"
   </FilesMatch>
 </IfModule>
+
+# Aplikasi (PWA): service worker & manifest jangan di-cache lama
+<IfModule mod_headers.c>
+  <FilesMatch "^(sw\.js|manifest\.json)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+</IfModule>
+AddType application/manifest+json .webmanifest

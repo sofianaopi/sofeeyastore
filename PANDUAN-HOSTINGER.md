@@ -112,3 +112,29 @@ Buka domain di **Chrome Android** → menu ⋮ → **Tambahkan ke layar utama**.
 
 hPanel → **Files → Backups** → *Database backups*. Disarankan mengunduh cadangan seminggu sekali.
 Cara lain: phpMyAdmin → **Export**.
+
+## QRIS dengan nominal otomatis
+
+1. Login admin → **Pengaturan toko → QRIS toko**.
+2. Klik **Foto / gambar QRIS** dan pilih foto QRIS statis yang ada di stand kasir (dari bank, GoPay/DANA/ShopeePay Merchant), atau **Scan pakai kamera**.
+3. Pastikan status **Valid** dan nama merchant benar → **Coba buat QR Rp1.000** → scan dengan HP Anda untuk memastikan nominal muncul → **Simpan QRIS**.
+4. Di kasir pilih metode **QRIS** saat membayar: kode QR dengan total belanja langsung tampil. Pembeli scan, nominal sudah terisi.
+5. Menu **QRIS** di samping dipakai untuk menerima pembayaran cepat dengan nominal bebas (tidak tercatat sebagai penjualan).
+
+Catatan: aplikasi tidak bisa mengetahui otomatis apakah dana sudah masuk. Kasir tetap mengecek notifikasi di aplikasi merchant QRIS sebelum menekan **Sudah dibayar**. Konfirmasi otomatis membutuhkan payment gateway berbayar (Midtrans / Xendit).
+
+## Pasang sebagai aplikasi di HP / tablet
+
+Syarat: website sudah memakai **HTTPS** (Langkah 4 — SSL aktif).
+
+- **Android (Chrome):** buka website → login → menu samping **Pasang aplikasi di HP** → **Instal**. Atau menu ⋮ Chrome → **Instal aplikasi**.
+- **iPhone / iPad (Safari):** buka website → tombol **Bagikan** → **Tambahkan ke Layar Utama**.
+- Ikon **Sofeeya POS** muncul di layar utama dan terbuka layar penuh seperti aplikasi biasa. Data tetap tersimpan di server, jadi semua HP/tablet melihat data yang sama.
+- Ingin file **APK** untuk dibagikan atau diunggah ke Play Store? Masukkan alamat website di **pwabuilder.com** → *Package for stores* → Android.
+
+## Tampilan potret / lanskap
+
+- Aplikasi otomatis menyesuaikan arah layar: **lanskap** = produk di kiri, keranjang di kanan; **potret** tablet = produk di atas, keranjang di bawah; **potret** HP = tombol keranjang di bawah layar.
+- Untuk mengunci tampilan, ketuk tombol **putar** (ikon HP dengan panah) di layar kasir, atau menu samping **Tampilan potret / lanskap** → pilih *Otomatis*, *Potret*, atau *Lanskap*. Pilihan disimpan per perangkat.
+- Menu samping tersembunyi otomatis: di tablet/laptop tampil sebagai ikon dan melebar saat disentuh/didekati kursor; di HP dibuka lewat tombol ☰.
+

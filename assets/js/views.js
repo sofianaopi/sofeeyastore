@@ -566,6 +566,12 @@ V.pengaturan = async (page) => {
         <p class="small muted" style="margin:0">Pilihan cepat di tombol <b>Biaya</b> dan <b>Kirim</b> pada kasir, misalnya ongkir Maxim. Nominal tetap bisa diubah saat transaksi.</p>
         <div class="stack" data-fees style="gap:8px"></div>
         <div><button class="btn primary" data-save-fees>Simpan biaya tambahan</button></div></div></div>
+      <div class="panel"><div class="panel-h"><h3>QRIS toko</h3><span data-qstat></span></div><div class="panel-b stack" data-qris>
+        <p class="small muted" style="margin:0">Masukkan QRIS statis toko (yang dicetak di stand kasir, dari bank / GoPay / DANA / ShopeePay Merchant). Aplikasi akan membuat kode QRIS dengan nominal transaksi otomatis.</p>
+        <div class="row wrap"><label class="btn" style="cursor:pointer">${icon('upload')}Foto / gambar QRIS<input type="file" accept="image/*" data-qfile style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></label><button class="btn" data-qcam>${icon('camera')}Scan pakai kamera</button></div>
+        <label class="f">Teks QRIS<textarea class="input" name="qris_payload" placeholder="000201010211…" style="min-height:70px;font-family:monospace;font-size:12px">${esc(s.qris_payload || '')}</textarea><span class="hint">Terisi otomatis dari foto/kamera. Bisa juga ditempel manual.</span></label>
+        <div data-qprev></div>
+        <div class="row wrap"><button class="btn primary" data-qsave>Simpan QRIS</button><button class="btn danger" data-qdel>Hapus</button></div></div></div>
       <div class="panel"><div class="panel-h"><h3>Jadwal & absensi</h3></div><div class="panel-b stack" data-att>
         <div class="grid2">${field('Jam masuk', 'startTime', sch.startTime || '08:00', { type: 'time' })}${field('Toleransi terlambat (menit)', 'toleranceMinutes', sch.toleranceMinutes ?? 15, { numeric: true })}</div>
         ${field('Nama WiFi toko (informasi)', 'wifiName', net.wifiName || '')}
@@ -576,6 +582,20 @@ V.pengaturan = async (page) => {
     </div>
     <div class="panel" style="position:sticky;top:0"><div class="panel-h"><h3>Contoh struk</h3><button class="btn sm" data-test>${icon('printer')}Cetak contoh</button></div><div class="panel-b"><div class="receipt-preview" data-prev></div></div></div>
   </div>`;
+  // ---- QRIS
+  const qta = $('[name=qris_payload]', page);
+  const qprev = () => {
+    const v = qta.value.trim();
+    if (!v) { $('[data-qprev]', page).innerHTML = ''; $('[data-qstat]', page).innerHTML = '<span class="chip">Belum diatur</span>'; return; }
+    try { const inf = QRIS.info(v); $('[data-qstat]', page).innerHTML = `<span class="chip ${inf.crcOk ? 'green' : 'red'}">${inf.crcOk ? 'Valid' : 'Checksum salah'}</span>`; $('[data-qprev]', page).innerHTML = `<div class="panel panel-b small" style="background:#FAFBFD"><b>${esc(inf.name)}</b> · ${esc(inf.city)}${inf.nmid ? ' · NMID ' + esc(inf.nmid) : ''}${inf.dynamic ? '<br><span class="danger">Ini QRIS dinamis (sekali pakai). Gunakan QRIS statis yang dicetak di stand toko.</span>' : ''}<div class="row" style="margin-top:8px"><button class="btn sm" data-qtest>Coba buat QR Rp1.000</button></div></div>`; }
+    catch (e) { $('[data-qstat]', page).innerHTML = '<span class="chip red">Tidak valid</span>'; $('[data-qprev]', page).innerHTML = `<p class="danger small" style="margin:0">${esc(e.message)}</p>`; }
+  };
+  qta.oninput = qprev; qprev();
+  $('[data-qfile]', page).onchange = async (e) => { const f = e.target.files[0]; if (!f) return; try { qta.value = await QRIS.decodeImage(f); qprev(); toast('QRIS terbaca', '', 'ok'); } catch (ex) { toastErr(ex); } e.target.value = ''; };
+  $('[data-qcam]', page).onclick = async () => { const c = await scanWithCamera(); if (c) { qta.value = c; qprev(); } };
+  $('[data-qris]', page).addEventListener('click', (e) => { if (e.target.closest('[data-qtest]')) { App.settings.qris_payload = qta.value.trim(); qrisFullscreen(1000); } });
+  $('[data-qsave]', page).onclick = () => { const v = qta.value.trim(); try { if (v) { const inf = QRIS.info(v); if (!inf.crcOk) throw new Error('Checksum QRIS salah. Ambil ulang dari foto.'); if (inf.dynamic) throw new Error('Gunakan QRIS statis, bukan QRIS dinamis.'); } } catch (ex) { toastErr(ex); return; } save({ qris_payload: v }, v ? 'QRIS disimpan' : 'QRIS dihapus'); };
+  $('[data-qdel]', page).onclick = async () => { if (await confirmBox('Hapus QRIS?', 'Pembayaran QRIS di kasir tidak akan menampilkan kode.', 'Hapus')) { qta.value = ''; qprev(); save({ qris_payload: '' }, 'QRIS dihapus'); } };
   let fees = (() => { try { return JSON.parse(s.fee_presets || '[]'); } catch (e) { return []; } })();
   const drawFees = () => { $('[data-fees]', page).innerHTML = fees.length ? fees.map((f, i) => `<div class="row"><input class="input grow" data-fl="${i}" value="${esc(f.label)}" placeholder="Nama biaya, mis. Ongkir Maxim"><input class="input" data-fa="${i}" value="${f.amount || ''}" inputmode="numeric" placeholder="Rp" style="width:120px"><button class="btn icon sm danger" data-fd="${i}" aria-label="Hapus">${icon('trash')}</button></div>`).join('') : '<p class="muted small" style="margin:0">Belum ada. Klik Tambah.</p>'; };
   drawFees();
@@ -665,7 +685,7 @@ V.printer = async (page) => {
 //  PENGIRIMAN
 // =====================================================================
 V.pengiriman = async (page) => {
-  const ST = { baru: ['Perlu dikirim', 'amber'], dikirim: ['Dalam perjalanan', 'blue'], selesai: ['Selesai', 'green'], batal: ['Batal', 'red'] };
+  const ST = { baru: ['Perlu dikirim', 'amber'], dipesan: ['Kurir dipesan', 'blue'], dikirim: ['Dalam perjalanan', 'blue'], selesai: ['Selesai', 'green'], batal: ['Batal', 'red'] };
   let list = [], tab = 'baru';
   page.innerHTML = head('Pengiriman', 'Pesanan yang dikirim lewat J&T, JNE, Grab, GoSend, Maxim, atau kurir toko.') + `<div class="row wrap" style="justify-content:space-between;margin-bottom:12px"><div data-tabwrap></div><div class="search" style="min-width:240px">${icon('search')}<input class="input" data-q placeholder="Cari nama, HP, resi, invoice…"></div></div><div data-body></div>`;
   const body = $('[data-body]', page);
@@ -679,14 +699,15 @@ V.pengiriman = async (page) => {
     const l = list.filter((x) => (tab === 'all' || x.status === tab) && (!q || [x.recipient, x.phone, x.resi, x.invoice, x.courier, x.address].join(' ').toLowerCase().includes(q)));
     body.innerHTML = l.length ? `<div class="ship-grid">${l.map((sh) => { const c = courierInfo(sh.courier); const tr = trackURL(sh); return `
       <article class="panel ship-card">
-        <div class="row"><span class="chip blue">${icon('truck')} ${esc(sh.courier)}</span><span class="chip ${ST[sh.status][1]}">${ST[sh.status][0]}</span><span class="grow"></span><span class="small muted">${fmtDT(sh.created)}</span></div>
+        <div class="row"><span class="chip blue">${icon('truck')} ${esc(sh.courier)}</span><span class="chip ${(ST[sh.status] || ST.baru)[1]}">${(ST[sh.status] || ST.baru)[0]}</span><span class="grow"></span><span class="small muted">${fmtDT(sh.created)}</span></div>
         <div><b style="font-size:15px">${esc(sh.recipient || '-')}</b> ${sh.phone ? `<span class="muted">· ${esc(sh.phone)}</span>` : ''}</div>
         <p class="ship-addr">${esc(sh.address || '-')}</p>
         <div class="small muted">${esc(sh.invoice)} · ongkir ${sh.fee ? rupiah(sh.fee) : 'dibayar penerima'}${sh.note ? ' · ' + esc(sh.note) : ''}</div>
+        ${sh.driver ? `<div class="small">Kurir: <b>${esc(sh.driver)}</b></div>` : ''}
         ${sh.resi ? `<div class="small">Resi / pelacakan: <b>${tr ? `<a href="${esc(tr)}" target="_blank" rel="noopener">${esc(sh.resi)}</a>` : esc(sh.resi)}</b></div>` : ''}
         <div class="row wrap" style="margin-top:4px">
           ${sh.status === 'baru' ? `${c.site ? `<a class="btn sm" href="${esc(c.site)}" target="_blank" rel="noopener">Buka ${esc(c.id)}</a>` : ''}<button class="btn sm" data-copy="${sh.id}">Salin alamat</button><button class="btn sm primary" data-send="${sh.id}">Isi resi & kirim</button>` : ''}
-          ${sh.status === 'dikirim' ? `${tr ? `<a class="btn sm" href="${esc(tr)}" target="_blank" rel="noopener">Lacak</a>` : ''}<button class="btn sm" data-send="${sh.id}">Ubah resi</button><button class="btn sm primary" data-done="${sh.id}">Tandai diterima</button>` : ''}
+          ${sh.status === 'dikirim' || sh.status === 'dipesan' ? `${tr ? `<a class="btn sm" href="${esc(tr)}" target="_blank" rel="noopener">Lacak</a>` : ''}<button class="btn sm" data-send="${sh.id}">Ubah resi</button><button class="btn sm primary" data-done="${sh.id}">Tandai diterima</button>` : ''}
           ${sh.phone && sh.status !== 'batal' ? `<a class="btn sm" target="_blank" rel="noopener" href="${esc(waLink(sh.phone, msg(sh)))}">${icon('wa')}WA</a>` : ''}
           <button class="btn sm" data-label="${sh.id}">${icon('printer')}Label</button>
           <span class="grow"></span><button class="btn sm icon ghost" data-edit="${sh.id}" aria-label="Ubah">${icon('edit')}</button>
@@ -706,6 +727,38 @@ V.pengiriman = async (page) => {
   };
   await load();
   return () => { body.onclick = null; };
+};
+
+// =====================================================================
+//  QRIS — terima pembayaran langsung dengan nominal
+// =====================================================================
+V.qris = async (page) => {
+  let amount = 0;
+  page.innerHTML = head('QRIS', 'Ketik nominal, lalu tunjukkan kode ke pembeli. Nominal langsung terisi di aplikasi pembeli.', App.isAdmin() ? '<a class="btn" href="#pengaturan">Atur QRIS toko</a>' : '') + `
+    <div class="grid2" style="align-items:start;max-width:900px">
+      <div class="panel panel-b stack">
+        <div class="bigtotal"><span>Nominal</span><b data-amt>Rp0</b></div>
+        <div class="keypad">${[1, 2, 3, 4, 5, 6, 7, 8, 9, '000', 0, '⌫'].map((k) => `<button data-k="${k}">${k}</button>`).join('')}</div>
+        <div class="quick">${[10000, 25000, 50000, 100000, 150000, 200000].map((v) => `<button data-q="${v}">${rupiah(v)}</button>`).join('')}</div>
+        <div class="row"><button class="btn" data-clear>Hapus</button><span class="grow"></span><button class="btn primary" data-full disabled>Layar penuh untuk pembeli</button></div>
+      </div>
+      <div class="center" data-qr></div>
+    </div>
+    <p class="small muted" style="max-width:900px">Pembayaran lewat menu ini tidak tercatat sebagai penjualan barang. Untuk penjualan, pilih metode QRIS di layar <a href="#kasir">Kasir</a>. Selalu cek notifikasi dana masuk di aplikasi merchant QRIS Anda.</p>`;
+  const draw = () => {
+    $('[data-amt]', page).textContent = rupiah(amount);
+    $('[data-full]', page).disabled = !(amount > 0 && App.settings.qris_payload);
+    $('[data-qr]', page).innerHTML = amount > 0 ? qrisPanel(amount) : (App.settings.qris_payload ? `<div class="panel panel-b muted">Masukkan nominal untuk membuat kode QRIS.</div>` : qrisPanel(1));
+  };
+  page.onclick = (e) => {
+    const k = e.target.closest('[data-k]')?.dataset.k, q = e.target.closest('[data-q]')?.dataset.q;
+    if (k !== undefined) { const s = String(amount === 0 ? '' : amount); amount = k === '⌫' ? num(s.slice(0, -1)) : Math.min(99999999, num(s + k)); draw(); }
+    if (q) { amount = +q; draw(); }
+    if (e.target.closest('[data-clear]')) { amount = 0; draw(); }
+    if (e.target.closest('[data-full]') && amount > 0) qrisFullscreen(amount);
+  };
+  draw();
+  return () => { page.onclick = null; };
 };
 
 // =====================================================================

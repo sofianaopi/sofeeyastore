@@ -10,6 +10,7 @@ const App = {
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', can: (u) => u.role === 'admin' },
     { id: 'laporan', label: 'Laporan', icon: 'laporan', can: () => true },
     { id: 'pengiriman', label: 'Pengiriman', icon: 'truck', can: () => true },
+    { id: 'qris', label: 'QRIS', icon: 'qr', can: () => true },
     { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },
     { id: 'promo', label: 'Promo', icon: 'promo', can: (u) => u.promo_access },
     { id: 'member', label: 'Member', icon: 'member', can: () => true },
@@ -24,7 +25,49 @@ const App = {
   ],
   isAdmin() { return this.user && this.user.role === 'admin'; },
 
+  // ---- tata letak: otomatis / potret / lanskap (disimpan per perangkat)
+  layoutPref() { try { return localStorage.getItem('pos-layout') || 'auto'; } catch (e) { return 'auto'; } },
+  setLayout(v) { try { localStorage.setItem('pos-layout', v); } catch (e) { /* abaikan */ } this.applyLayout(); if (v !== 'auto' && screen.orientation && screen.orientation.lock) screen.orientation.lock(v === 'land' ? 'landscape' : 'portrait').catch(() => {}); else if (screen.orientation && screen.orientation.unlock) try { screen.orientation.unlock(); } catch (e) { /* abaikan */ } },
+  applyLayout() {
+    const w = window.innerWidth, h = window.innerHeight, pref = this.layoutPref();
+    const o = pref === 'auto' ? (w >= h ? 'land' : 'port') : pref;
+    const b = document.body.classList;
+    b.toggle('o-land', o === 'land'); b.toggle('o-port', o === 'port');
+    b.toggle('d-phone', Math.min(w, h) < 600);
+    b.toggle('compact', w < 720 || Math.min(w, h) < 600);
+  },
+  layoutMenu(anchor) {
+    $$('.laymenu').forEach((x) => x.remove());
+    const r = anchor.getBoundingClientRect(), cur = this.layoutPref();
+    const m = document.createElement('div'); m.className = 'laymenu';
+    m.innerHTML = [['auto', 'Otomatis (ikuti layar)', 'rotate'], ['port', 'Potret', 'phone'], ['land', 'Lanskap', 'tablet']].map(([k, l, ic]) => `<button data-lay="${k}" class="${cur === k ? 'on' : ''}">${icon(ic)}${l}</button>`).join('');
+    m.style.top = Math.min(window.innerHeight - 150, r.bottom + 6) + 'px'; m.style.left = Math.max(8, Math.min(window.innerWidth - 200, r.right - 190)) + 'px';
+    m.style.position = 'fixed';
+    document.body.appendChild(m);
+    const close = (e) => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', close, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+    m.onclick = (e) => { const b = e.target.closest('[data-lay]'); if (!b) return; this.setLayout(b.dataset.lay); m.remove(); toast('Tampilan: ' + b.textContent.trim()); };
+  },
+  // ---- sidebar
+  rail(open) { const r = $('.rail'); if (!r) return; r.classList.toggle('open', open); document.body.classList.toggle('rail-open', open); },
+  // ---- pasang aplikasi (PWA)
+  installEvt: null,
+  isStandalone() { return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true; },
+  async install() {
+    if (this.installEvt) { this.installEvt.prompt(); const r = await this.installEvt.userChoice; if (r.outcome === 'accepted') { toast('Aplikasi dipasang', 'Buka dari layar utama HP.', 'ok'); this.installEvt = null; this.updateInstall(); } return; }
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    modal({ title: 'Pasang aplikasi di HP / tablet', body: ios
+      ? '<ol style="margin:0;padding-left:18px;line-height:1.8"><li>Buka halaman ini di <b>Safari</b>.</li><li>Ketuk tombol <b>Bagikan</b> (kotak dengan panah ke atas).</li><li>Pilih <b>Tambahkan ke Layar Utama</b> → <b>Tambah</b>.</li></ol>'
+      : '<ol style="margin:0;padding-left:18px;line-height:1.8"><li>Buka halaman ini di <b>Google Chrome</b>.</li><li>Ketuk menu <b>⋮</b> di kanan atas.</li><li>Pilih <b>Instal aplikasi</b> atau <b>Tambahkan ke layar utama</b>.</li></ol><p class="small muted">Pastikan website memakai HTTPS (gembok di alamat). Aplikasi lalu terbuka layar penuh seperti aplikasi biasa.</p>' });
+  },
+  updateInstall() { $$('[data-install]').forEach((b) => b.classList.toggle('hidden', this.isStandalone())); },
+
   async start() {
+    this.applyLayout();
+    window.addEventListener('resize', debounce(() => this.applyLayout(), 120));
+    window.addEventListener('orientationchange', () => setTimeout(() => this.applyLayout(), 200));
+    window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); this.installEvt = e; this.updateInstall(); });
+    if ('serviceWorker' in navigator && (location.protocol === 'https:' || /^(localhost|127\.0\.0\.1)$/.test(location.hostname))) navigator.serviceWorker.register('sw.js').catch(() => {});
     window.onSessionExpired = () => { if (this.user) { this.user = null; toast('Sesi berakhir', 'Silakan masuk kembali.', 'err'); this.renderLogin(); } };
     try {
       const b = await api('boot');
@@ -37,7 +80,7 @@ const App = {
 
   // ------------------------------------------------------------ login
   renderLogin() {
-    document.body.className = '';
+    document.body.classList.remove('in-kasir', 'rail-open', 'cart-open'); this.applyLayout();
     const name = this.settings.store_name || 'Sofeeya Store';
     $('#app').innerHTML = `
     <div class="login">
@@ -85,12 +128,14 @@ const App = {
     $('#app').innerHTML = `
     <div class="shell">
       <aside class="rail">
-        <div class="brandmark"><div class="logo">${esc(name[0] || 'S')}</div><div><b>${esc(name)}</b><span>${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div></div>
+        <div class="brandmark" data-railtoggle title="Menu"><div class="logo">${esc(name[0] || 'S')}</div><div><b>${esc(name)}</b><span>${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div></div>
         <nav class="nav">${nav.map((n) => n.sep ? '<div class="sep"></div>' : `<a href="#${n.id}" data-nav="${n.id}">${icon(n.icon)}<span>${esc(n.label)}</span>${n.id === 'laporan' ? '<span class="badge hidden" data-txbadge></span>' : ''}${n.id === 'produk' ? '<span class="badge hidden" data-chkbadge></span>' : ''}</a>`).join('')}
           <div class="sep"></div>
           <a href="absen.html">${icon('finger')}<span>Absen</span></a>
           ${u.cek_stok_access ? `<a href="cek-stok.html">${icon('clipboard')}<span>Cek stok</span></a>` : ''}
           ${u.role === 'admin' ? `<a href="#" data-broadcast>${icon('refresh')}<span>Refresh semua perangkat</span></a>` : ''}
+          <a href="#" data-install>${icon('download')}<span>Pasang aplikasi di HP</span></a>
+          <a href="#" data-layout>${icon('rotate')}<span>Tampilan potret / lanskap</span></a>
         </nav>
         <div class="me"><div class="avatar">${esc((u.name || 'U')[0])}</div><div class="grow"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.name)}</b><span class="tiny muted">${u.role === 'admin' ? 'Admin' : 'Kasir'}</span></div><button class="btn ghost icon sm" data-logout title="Keluar" aria-label="Keluar">${icon('logout')}</button></div>
       </aside>
@@ -107,8 +152,17 @@ const App = {
       </nav>
     </div>`;
     $$('[data-logout]').forEach((b) => (b.onclick = () => this.logout()));
-    $$('[data-menu]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); document.body.classList.toggle('nav-open'); }));
-    $('[data-scrim]').onclick = () => document.body.classList.remove('nav-open');
+    $$('[data-menu]').forEach((b) => (b.onclick = (e) => { e.preventDefault(); this.rail(!$('.rail').classList.contains('open')); }));
+    $('[data-scrim]').onclick = () => this.rail(false);
+    const rail = $('.rail');
+    $('[data-railtoggle]').onclick = () => this.rail(!rail.classList.contains('open'));
+    // desktop: buka saat kursor mendekat, tutup otomatis saat kursor pergi
+    rail.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse' && !document.body.classList.contains('compact')) this.rail(true); });
+    rail.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && !document.body.classList.contains('compact')) this.rail(false); });
+    rail.addEventListener('click', (e) => { if (e.target.closest('.nav a[href^="#"]:not([data-broadcast]):not([data-install]):not([data-layout])')) this.rail(false); });
+    $('[data-install]').onclick = (e) => { e.preventDefault(); this.install(); };
+    $('[data-layout]').onclick = (e) => { e.preventDefault(); this.layoutMenu(e.currentTarget); };
+    this.updateInstall();
     const bc = $('[data-broadcast]');
     if (bc) bc.onclick = async (e) => {
       e.preventDefault();
@@ -125,7 +179,7 @@ const App = {
     let id = (location.hash || '').replace('#', '').split('/')[0];
     const allowed = this.NAV.filter((n) => !n.sep && n.can(u)).map((n) => n.id);
     if (!allowed.includes(id)) id = u.role === 'admin' ? 'dashboard' : 'kasir';
-    document.body.classList.remove('nav-open', 'cart-open');
+    this.rail(false); document.body.classList.remove('cart-open');
     document.body.classList.toggle('in-kasir', id === 'kasir');
     $$('[data-nav]').forEach((a) => a.classList.toggle('on', a.dataset.nav === id));
     $$('[data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === id));
@@ -178,9 +232,11 @@ async function Kasir(page) {
   <div class="pos">
     <section class="pos-left">
       <div class="pos-tools">
+        <button class="btn icon kasir-menu" data-kmenu aria-label="Menu">${icon('menu')}</button>
         <form class="scanbox" data-scanform>${icon('barcode')}<input data-scan placeholder="Scan barcode atau ketik nama barang…" autocomplete="off" aria-label="Scan barcode atau cari barang"></form>
         <button class="btn icon" data-camera title="Scan pakai kamera" aria-label="Scan pakai kamera">${icon('camera')}</button>
         <button class="btn" data-addprod title="Tambah barang baru">${icon('plus')}<span class="hide-sm">Barang</span></button>
+        <button class="btn icon" data-lay title="Tampilan potret / lanskap" aria-label="Tampilan potret / lanskap">${icon('rotate')}</button>
       </div>
       <div class="cats" data-cats></div>
       <div class="promostrip" data-promos></div>
@@ -209,7 +265,7 @@ async function Kasir(page) {
     </aside>
   </div>`;
   const style = document.createElement('style');
-  style.textContent = '@media(min-width:901px){.mobile-only{display:none!important}} @media(max-width:520px){.hide-sm{display:none}}';
+  style.textContent = '@media(max-width:520px){.hide-sm{display:none}} body.d-phone .hide-sm{display:none}';
   page.appendChild(style);
 
   const el = (s) => $(s, page);
@@ -253,7 +309,7 @@ async function Kasir(page) {
 
   // ---------- render
   function renderCats() {
-    const cats = ['Semua', ...new Set(st.products.map((p) => p.category).filter(Boolean))].sort((a, b) => (a === 'Semua' ? -1 : b === 'Semua' ? 1 : a.localeCompare(b)));
+    const cats = ['Semua', ...new Set(st.products.filter((p) => p.stock > 0).map((p) => p.category).filter(Boolean))].sort((a, b) => (a === 'Semua' ? -1 : b === 'Semua' ? 1 : a.localeCompare(b)));
     el('[data-cats]').innerHTML = cats.map((c) => `<button class="${c === st.cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
   }
   function renderPromos() {
@@ -270,9 +326,9 @@ async function Kasir(page) {
     if (!alive()) return;
     const q = st.q.trim().toLowerCase();
     const act = activePromos();
-    const list = st.products.filter((p) => (st.cat === 'Semua' || p.category === st.cat) && (!q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q)));
+    const list = st.products.filter((p) => p.stock > 0 && (st.cat === 'Semua' || p.category === st.cat) && (!q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q)));
     const inCart = Object.fromEntries(st.cart.map((c) => [c.id, c.qty]));
-    if (!list.length) { el('[data-grid]').innerHTML = emptyState(st.products.length ? 'Barang tidak ditemukan.' : 'Belum ada barang. Tambahkan lewat menu Produk & stok.'); return; }
+    if (!list.length) { el('[data-grid]').innerHTML = emptyState(st.products.some((p) => p.stock > 0) ? 'Barang tidak ditemukan.' : (st.products.length ? 'Semua barang sedang habis. Tambah stok di menu Produk & stok.' : 'Belum ada barang. Tambahkan lewat menu Produk & stok.')); return; }
     el('[data-grid]').innerHTML = list.slice(0, 400).map((p) => {
       const out = p.stock <= 0; const b = Promo.badgeFor(p, act);
       return `<button class="prod" data-add="${p.id}" ${out ? 'disabled style="opacity:.45"' : ''}>
@@ -426,14 +482,14 @@ async function Kasir(page) {
     const presets = feePresets();
     const m = modal({ title: 'Kirim pesanan', size: 'wide', body: `<div class="stack">
       <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Kurir</div><div class="quick" data-cour>${COURIERS.map((c) => `<button data-c="${esc(c.id)}" class="${cur.courier === c.id ? 'on' : ''}">${esc(c.id)}</button>`).join('')}</div></div>
-      <div class="grid2" data-f>${field('Nama penerima', 'recipient', cur.recipient)}${field('No. HP / WA penerima', 'phone', cur.phone, { type: 'tel' })}</div>
+      <div class="grid2">${field('Nama penerima', 'recipient', cur.recipient)}${field('No. HP / WA penerima', 'phone', cur.phone, { type: 'tel' })}</div>
       <label class="f">Alamat lengkap<textarea class="input" name="address" placeholder="Jalan, nomor rumah, kelurahan, kecamatan, patokan">${esc(cur.address || '')}</textarea></label>
-      <div class="grid2">${field('Ongkir yang ditagih ke pembeli (Rp)', 'fee', cur.fee || '', { numeric: true, hint: 'Isi 0 bila ongkir dibayar penerima / gratis ongkir.' })}${field('Catatan untuk kurir', 'note', cur.note, { placeholder: 'Titip satpam, hubungi dulu…' })}</div>
-      ${presets.length ? `<div class="quick" data-pre>${presets.map((f, i) => `<button data-p="${i}">${esc(f.label)} · ${rupiah(f.amount)}</button>`).join('')}</div>` : ''}
+      <div class="grid2">${field('Ongkir yang ditagih ke pembeli (Rp)', 'fee', cur.fee === '' ? '' : cur.fee, { numeric: true, hint: 'Isi 0 bila ongkir dibayar penerima / gratis ongkir.' })}${field('Catatan untuk kurir', 'note', cur.note, { placeholder: 'Titip satpam, hubungi dulu…' })}</div>
+      ${presets.length ? `<div class="quick">${presets.map((f, i) => `<button data-p="${i}">${esc(f.label)} · ${rupiah(f.amount)}</button>`).join('')}</div>` : ''}
       <p class="small muted" style="margin:0">Setelah transaksi selesai, pesan kurir lewat aplikasinya lalu isi nomor resi / link pelacakan di menu <b>Pengiriman</b>.</p></div>`,
       foot: `${st.shipping ? '<button class="btn danger" data-rm>Batalkan pengiriman</button>' : ''}<button class="btn primary" data-ok>Simpan pengiriman</button>` });
     let courier = cur.courier;
-    m.$$('[data-c]').forEach((b) => (b.onclick = () => { courier = b.dataset.c; m.$$('[data-c]').forEach((x) => x.classList.toggle('on', x === b)); const pre = presets.find((f) => f.label.toLowerCase().includes(courier.split(' ')[0].toLowerCase().replace('&', ''))) || presets.find((f) => f.label.toLowerCase().includes(courier.toLowerCase().split(' ')[0])); if (pre && !num(m.$('[name=fee]').value)) m.$('[name=fee]').value = pre.amount; }));
+    m.$$('[data-c]').forEach((b) => (b.onclick = () => { courier = b.dataset.c; m.$$('[data-c]').forEach((x) => x.classList.toggle('on', x === b)); const key = courier.toLowerCase().split(' ')[0].replace('&', ''); const pre = presets.find((f) => f.label.toLowerCase().replace('&', '').includes(key)); if (pre && !num(m.$('[name=fee]').value)) m.$('[name=fee]').value = pre.amount; }));
     m.$$('[data-p]').forEach((b) => (b.onclick = () => { m.$('[name=fee]').value = presets[+b.dataset.p].amount; }));
     const rm = m.$('[data-rm]'); if (rm) rm.onclick = () => { st.shipping = null; m.close(); renderCart(); };
     m.$('[data-ok]').onclick = () => {
@@ -498,6 +554,7 @@ async function Kasir(page) {
         <div data-cashbox>${field('Uang diterima', 'pay', '', { numeric: true, placeholder: '0' })}
           <div class="quick" style="margin-top:8px">${quick.map((v) => `<button data-q="${v}">${v === r.total ? 'Uang pas' : rupiah(v)}</button>`).join('')}</div>
           <p class="bold" style="margin:10px 0 0" data-change></p></div>
+        <div data-qrisbox class="hidden center"></div>
         <div class="grid2">${field('Kode sales (opsional)', 'sales', '', { placeholder: 'SLS01', attrs: 'style="text-transform:uppercase" list="saleslist"' })}${field('Catatan (opsional)', 'note', st.note)}</div>
         <datalist id="saleslist">${st.sales.map((s) => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join('')}</datalist>
         <p class="small muted" data-salesname style="margin:-6px 0 0"></p>
@@ -511,7 +568,7 @@ async function Kasir(page) {
     };
     pay.oninput = upd;
     m.$$('[data-q]').forEach((b) => (b.onclick = () => { pay.value = b.dataset.q; upd(); }));
-    m.$$('[data-m]').forEach((b) => (b.onclick = () => { method = b.dataset.m; m.$$('[data-m]').forEach((x) => x.classList.toggle('on', x === b)); m.$('[data-cashbox]').classList.toggle('hidden', method !== 'cash'); upd(); }));
+    m.$$('[data-m]').forEach((b) => (b.onclick = () => { method = b.dataset.m; m.$$('[data-m]').forEach((x) => x.classList.toggle('on', x === b)); m.$('[data-cashbox]').classList.toggle('hidden', method !== 'cash'); const qb = m.$('[data-qrisbox]'); qb.classList.toggle('hidden', method !== 'qris'); if (method === 'qris') { qb.innerHTML = qrisPanel(r.total) + (App.settings.qris_payload ? `<div class="row" style="justify-content:center;margin-top:8px"><button class="btn sm" data-qfull>Tampilkan layar penuh</button></div><p class="small muted" style="margin:6px 0 0">Cek notifikasi dana masuk di aplikasi merchant QRIS sebelum menekan "Sudah dibayar".</p>` : ''); const fb = qb.querySelector('[data-qfull]'); if (fb) fb.onclick = () => qrisFullscreen(r.total); } m.$('[data-finish]').textContent = method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; upd(); }));
     m.$('[name=sales]').oninput = (e) => { const s = st.sales.find((x) => x.code.toUpperCase() === e.target.value.trim().toUpperCase()); m.$('[data-salesname]').textContent = e.target.value.trim() ? (s ? 'Sales: ' + s.name : 'Kode sales tidak dikenal') : ''; };
     m.$('[data-cancel]').onclick = () => m.close();
     if (window.innerWidth > 700) setTimeout(() => pay.focus(), 40);
@@ -529,7 +586,7 @@ async function Kasir(page) {
           note: [m.$('[name=note]').value.trim(), st.reward && st.reward.type === 'product' ? 'Hadiah poin: ' + st.reward.product_name : ''].filter(Boolean).join(' | '),
         });
         m.close(); doneModal(trx);
-      } catch (ex) { toastErr(ex); btn.disabled = false; btn.textContent = 'Selesaikan transaksi'; }
+      } catch (ex) { toastErr(ex); btn.disabled = false; btn.textContent = method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; }
     };
   }
   function doneModal(trx) {
@@ -551,6 +608,8 @@ async function Kasir(page) {
   scan.oninput = debounce(() => { st.q = scan.value; renderGrid(); }, 150);
   el('[data-camera]').onclick = async () => { const code = await scanWithCamera(); if (code) handleScan(code); };
   el('[data-addprod]').onclick = addProductModal;
+  el('[data-lay]').onclick = (e) => App.layoutMenu(e.currentTarget);
+  el('[data-kmenu]').onclick = () => App.rail(true);
   el('[data-cats]').onclick = (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; st.cat = b.dataset.cat; renderCats(); renderGrid(); };
   el('[data-promos]').onclick = (e) => { const b = e.target.closest('[data-promo]'); if (!b) return; const p = st.promos.find((x) => x.id === +b.dataset.promo); if (p.code) applyVoucher(p.code); else toast('Promo otomatis', `${p.name} langsung terpotong saat syarat terpenuhi.`); };
   el('[data-grid]').onclick = (e) => { const b = e.target.closest('[data-add]'); if (!b) return; const p = st.products.find((x) => x.id === +b.dataset.add); if (p) addToCart(p); };
