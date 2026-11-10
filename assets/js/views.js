@@ -208,7 +208,8 @@ V.laporan = async (page) => {
     $('[data-tbl]', body).onclick = (e) => { const r = e.target.closest('[data-tx]'); if (r) txDetail(cache.find((t) => t.id === +r.dataset.tx)); };
     render();
   }
-  function txDetail(t) {
+  async function txDetail(t) {
+    if (t.shipping === undefined) { try { const sh = await db.list('shipments', { where: { transaction_id: t.id }, limit: 1 }); t.shipping = sh[0] || null; } catch (e) { t.shipping = null; } }
     const m = modal({ title: 'Detail transaksi', size: 'wide', body: `<div class="grid2" style="align-items:start"><div class="receipt-preview">${receiptHTML(t, App.settings)}</div><div class="stack">
       <div class="panel panel-b small"><div class="row"><span class="grow muted">Laba</span><b class="${t.profit < 0 ? 'danger' : 'money'}">${admin ? rupiah(t.profit) : '—'}</b></div><div class="row"><span class="grow muted">Komisi sales</span><b>${rupiah(t.commission)}</b></div><div class="row"><span class="grow muted">Poin didapat / dipakai</span><b>${t.points_earned} / ${t.points_used}</b></div></div>
       ${admin ? `<div class="panel panel-b"><h3>Batalkan transaksi</h3><p class="small muted">Transaksi dihapus dari laporan. Poin member dikembalikan.</p><label class="check"><input type="checkbox" data-restore checked> Kembalikan stok barang</label>${field('Alasan pembatalan', 'reason', '', { placeholder: 'Salah input, retur, dll.' })}<button class="btn danger" data-cancel style="margin-top:10px">Batalkan transaksi</button></div>` : ''}</div></div>`,
@@ -358,14 +359,20 @@ V.promo = async (page) => {
   const [promos, products] = await Promise.all([db.list('promos'), db.list('products')]);
   const cats = [...new Set(products.map((p) => p.category).filter(Boolean))].sort();
   const status = (p) => (!p.active ? ['Nonaktif', ''] : !Promo.activeToday(p) ? (p.start_date && p.start_date > ymd() ? ['Terjadwal', 'blue'] : ['Berakhir', 'red']) : ['Aktif', 'green']);
-  page.innerHTML = head('Promo', 'Promo otomatis berlaku sendiri di kasir; promo berkode dipakai saat kasir memasukkan kodenya.', `<button class="btn primary" data-new>${icon('plus')}Promo baru</button>`) + table([
-    { label: 'Promo', html: (p) => `<b>${esc(p.name)}</b>${p.badge_text ? ` <span class="chip" style="background:${BADGE_COLORS[p.badge_color] || '#7C3AED'};color:#fff">${esc(p.badge_text)}</span>` : ''}<div class="small muted">${esc(Promo.TYPE_LABEL[p.type] || p.type)}</div>` },
-    { label: 'Aturan', html: (p) => `${esc(Promo.describe(p))}<div class="small muted">${[(p.categories || []).length ? 'Kategori: ' + p.categories.join(', ') : '', (p.product_ids || []).length ? p.product_ids.length + ' barang dipilih' : '', p.min_purchase ? 'Min. belanja ' + rupiah(p.min_purchase) : '', p.min_price || p.max_price ? `Harga ${rupiah(p.min_price)}–${p.max_price ? rupiah(p.max_price) : '∞'}` : '', p.free_category ? 'Hadiah dari ' + p.free_category : '', (p.free_product_ids || []).length ? p.free_product_ids.length + ' barang hadiah' : ''].filter(Boolean).map(esc).join(' · ') || 'Semua barang'}</div>` },
-    { label: 'Kode', html: (p) => (p.code ? `<span class="chip blue">${esc(p.code)}</span>${p.stackable ? ' <span class="chip">bisa digabung</span>' : ''}` : '<span class="muted small">Otomatis</span>') },
-    { label: 'Periode', get: (p) => (p.start_date || p.end_date ? `${p.start_date ? fmtDate(p.start_date) : '…'} – ${p.end_date ? fmtDate(p.end_date) : '…'}` : 'Tanpa batas') },
-    { label: 'Status', html: (p) => { const [l, c] = status(p); return `<span class="chip ${c}">${l}</span>`; } },
-    { label: '', cls: 'nowrap right', html: (p) => `<button class="btn sm" data-tog="${p.id}">${p.active ? 'Matikan' : 'Aktifkan'}</button> <button class="btn sm icon" data-edit="${p.id}" aria-label="Ubah">${icon('edit')}</button> <button class="btn sm icon danger" data-del="${p.id}" aria-label="Hapus">${icon('trash')}</button>` },
-  ], promos, { empty: 'Belum ada promo. Buat promo pertama, misalnya "Beli 2 gratis 1 kemeja".', emptyIcon: 'promo' });
+  const rank = (p) => { const [l] = status(p); return { Aktif: 0, Terjadwal: 1, Nonaktif: 2, Berakhir: 3 }[l]; };
+  const sorted = [...promos].sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
+  const period = (p) => (p.start_date || p.end_date ? `${p.start_date ? fmtDate(p.start_date) : 'Sekarang'} – ${p.end_date ? fmtDate(p.end_date) : 'seterusnya'}` : 'Tanpa batas waktu');
+  page.innerHTML = head('Promo', 'Promo otomatis langsung terpotong di kasir. Promo berkode dipakai saat kasir memasukkan kodenya.', `<button class="btn primary" data-new>${icon('plus')}Promo baru</button>`) +
+    `<div class="stats">${stat('Promo aktif hari ini', fmtNum(promos.filter((p) => status(p)[0] === 'Aktif').length), '', 'hero')}${stat('Otomatis', fmtNum(promos.filter((p) => p.active && !p.code).length))}${stat('Pakai kode', fmtNum(promos.filter((p) => p.active && p.code).length))}${stat('Nonaktif / berakhir', fmtNum(promos.filter((p) => ['Nonaktif', 'Berakhir'].includes(status(p)[0])).length))}</div>` +
+    (sorted.length ? `<div class="promo-grid">${sorted.map((p) => { const [l, c] = status(p); return `
+      <article class="promo-card ${l === 'Aktif' ? 'live' : ''} ${l === 'Nonaktif' || l === 'Berakhir' ? 'off' : ''}">
+        <div class="row"><span class="chip ${c}">${l}</span>${p.badge_text ? `<span class="chip" style="background:${BADGE_COLORS[p.badge_color] || '#7C3AED'};color:#fff">${esc(p.badge_text)}</span>` : ''}<span class="grow"></span>
+          <label class="switch" title="${p.active ? 'Matikan' : 'Aktifkan'}"><input type="checkbox" data-tog="${p.id}" ${p.active ? 'checked' : ''}><span></span></label></div>
+        <h3>${esc(p.name)}</h3>
+        <div class="promo-val">${esc(Promo.describe(p))}</div>
+        <div class="promo-meta">${p.code ? `<span class="pc-code">${esc(p.code)}</span>` : '<span class="muted small">Berlaku otomatis</span>'}${p.min_purchase ? `<span class="small muted">Min. belanja ${rupiah(p.min_purchase)}</span>` : ''}</div>
+        <div class="promo-foot"><span class="small muted">${icon('clock')} ${esc(period(p))}</span><span class="grow"></span><button class="btn sm icon ghost" data-edit="${p.id}" aria-label="Ubah">${icon('edit')}</button><button class="btn sm icon ghost danger" data-del="${p.id}" aria-label="Hapus">${icon('trash')}</button></div>
+      </article>`; }).join('')}</div>` : `<div class="panel">${emptyState('Belum ada promo. Buat promo pertama, misalnya "Beli 2 gratis 1 kemeja".', 'promo')}</div>`);
 
   function form(p = { type: 'percent', active: true, buy_qty: 2, free_qty: 1, categories: [], product_ids: [], free_product_ids: [] }) {
     const m = modal({ title: p.id ? 'Ubah promo' : 'Promo baru', size: 'wide', body: `<div class="stack" data-f>
@@ -420,7 +427,7 @@ V.promo = async (page) => {
     const id = +(g('edit') || g('del') || g('tog') || 0); if (!id) return;
     const p = promos.find((x) => x.id === id);
     if (g('edit')) form(p);
-    if (g('tog')) { try { await db.update('promos', id, { active: !p.active }); V.promo(page); } catch (ex) { toastErr(ex); } }
+    if (g('tog')) { e.preventDefault(); try { await db.update('promos', id, { active: !p.active }); toast(p.active ? 'Promo dimatikan' : 'Promo diaktifkan', p.name, 'ok'); V.promo(page); } catch (ex) { toastErr(ex); } }
     if (g('del') && await confirmBox('Hapus promo ' + p.name + '?', 'Promo tidak dapat dipakai lagi.', 'Hapus')) { try { await db.remove('promos', id); V.promo(page); } catch (ex) { toastErr(ex); } }
   };
   return () => { page.onclick = null; };
@@ -545,16 +552,20 @@ V.pengaturan = async (page) => {
   const sch = (() => { try { return JSON.parse(s.work_schedule || '{}'); } catch (e) { return {}; } })();
   const net = (() => { try { return JSON.parse(s.store_network || '{}'); } catch (e) { return {}; } })();
   const sample = { invoice: 'INV261110-1234', created: nowStr(), cashier: App.user.name, items: [{ name: 'Kemeja Kantor Putih', qty: 1, price: 159000 }, { name: 'Rok Span Hitam', qty: 1, price: 129000, itemDiscount: 20000 }], subtotal: 288000, discount: 20000, total: 268000, payment: 300000, change: 32000, payment_method: 'cash' };
-  page.innerHTML = head('Pengaturan toko', 'Identitas toko, struk, kode supervisor, jadwal masuk, dan WiFi absensi.') + `
+  page.innerHTML = head('Pengaturan toko', 'Identitas toko, struk, PIN admin, biaya tambahan, jadwal masuk, dan WiFi absensi.') + `
   <div class="grid2" style="align-items:start">
     <div class="stack">
       <div class="panel"><div class="panel-h"><h3>Toko & struk</h3></div><div class="panel-b stack" data-store>
         ${field('Nama toko', 'store_name', s.store_name)}${field('Alamat di struk', 'receipt_address', s.receipt_address)}${field('Telepon / WA', 'receipt_phone', s.receipt_phone)}${field('Catatan bawah baris 1', 'receipt_footer1', s.receipt_footer1)}${field('Catatan bawah baris 2', 'receipt_footer2', s.receipt_footer2)}
         <div><button class="btn primary" data-save-store>Simpan toko & struk</button></div></div></div>
-      <div class="panel"><div class="panel-h"><h3>Kode supervisor</h3></div><div class="panel-b stack" data-pin>
-        <p class="small muted" style="margin:0">Diminta saat kasir mengubah harga atau menambah barang. Kode tidak pernah dikirim ke perangkat kasir.</p>
-        ${field('Kode supervisor baru', 'supervisor_pin', '', { type: 'password', placeholder: 'Minimal 4 angka', attrs: 'inputmode="numeric" autocomplete="new-password"' })}
-        <div><button class="btn primary" data-save-pin>Ganti kode</button></div></div></div>
+      <div class="panel"><div class="panel-h"><h3>PIN admin</h3></div><div class="panel-b stack" data-pin>
+        <p class="small muted" style="margin:0">Kasir hanya bisa menambah barang atau mengubah harga bila admin memasukkan PIN ini. PIN tidak pernah dikirim ke perangkat kasir.</p>
+        ${field('PIN admin baru', 'supervisor_pin', '', { type: 'password', placeholder: 'Minimal 4 angka', attrs: 'inputmode="numeric" autocomplete="new-password"' })}
+        <div><button class="btn primary" data-save-pin>Ganti PIN</button></div></div></div>
+      <div class="panel"><div class="panel-h"><h3>Biaya tambahan</h3><button class="btn sm" data-addfee>${icon('plus')}Tambah</button></div><div class="panel-b stack">
+        <p class="small muted" style="margin:0">Pilihan cepat di tombol <b>Biaya</b> dan <b>Kirim</b> pada kasir, misalnya ongkir Maxim. Nominal tetap bisa diubah saat transaksi.</p>
+        <div class="stack" data-fees style="gap:8px"></div>
+        <div><button class="btn primary" data-save-fees>Simpan biaya tambahan</button></div></div></div>
       <div class="panel"><div class="panel-h"><h3>Jadwal & absensi</h3></div><div class="panel-b stack" data-att>
         <div class="grid2">${field('Jam masuk', 'startTime', sch.startTime || '08:00', { type: 'time' })}${field('Toleransi terlambat (menit)', 'toleranceMinutes', sch.toleranceMinutes ?? 15, { numeric: true })}</div>
         ${field('Nama WiFi toko (informasi)', 'wifiName', net.wifiName || '')}
@@ -565,12 +576,19 @@ V.pengaturan = async (page) => {
     </div>
     <div class="panel" style="position:sticky;top:0"><div class="panel-h"><h3>Contoh struk</h3><button class="btn sm" data-test>${icon('printer')}Cetak contoh</button></div><div class="panel-b"><div class="receipt-preview" data-prev></div></div></div>
   </div>`;
+  let fees = (() => { try { return JSON.parse(s.fee_presets || '[]'); } catch (e) { return []; } })();
+  const drawFees = () => { $('[data-fees]', page).innerHTML = fees.length ? fees.map((f, i) => `<div class="row"><input class="input grow" data-fl="${i}" value="${esc(f.label)}" placeholder="Nama biaya, mis. Ongkir Maxim"><input class="input" data-fa="${i}" value="${f.amount || ''}" inputmode="numeric" placeholder="Rp" style="width:120px"><button class="btn icon sm danger" data-fd="${i}" aria-label="Hapus">${icon('trash')}</button></div>`).join('') : '<p class="muted small" style="margin:0">Belum ada. Klik Tambah.</p>'; };
+  drawFees();
+  $('[data-fees]', page).oninput = (e) => { const i = e.target.dataset.fl ?? e.target.dataset.fa; if (i === undefined) return; if (e.target.dataset.fl !== undefined) fees[+i].label = e.target.value; else fees[+i].amount = numID(e.target.value); };
+  $('[data-fees]', page).onclick = (e) => { const d = e.target.closest('[data-fd]'); if (d) { fees.splice(+d.dataset.fd, 1); drawFees(); } };
+  $('[data-addfee]', page).onclick = () => { fees.push({ label: '', amount: 0 }); drawFees(); $(`[data-fl="${fees.length - 1}"]`, page).focus(); };
+  $('[data-save-fees]', page).onclick = () => { fees = fees.filter((f) => f.label.trim()).map((f) => ({ label: f.label.trim(), amount: num(f.amount) })); drawFees(); save({ fee_presets: JSON.stringify(fees) }, 'Biaya tambahan disimpan'); };
   const prev = () => { const v = formValues($('[data-store]', page)); $('[data-prev]', page).innerHTML = receiptHTML(sample, v); };
   $('[data-store]', page).oninput = prev; prev();
   $('[data-test]', page).onclick = () => printHTML(receiptHTML(sample, formValues($('[data-store]', page))));
   const save = async (values, msg) => { try { App.settings = await api('settings_save', { values }); toast(msg, '', 'ok'); } catch (e) { toastErr(e); } };
   $('[data-save-store]', page).onclick = () => save(formValues($('[data-store]', page)), 'Pengaturan toko disimpan');
-  $('[data-save-pin]', page).onclick = () => { const p = $('[name=supervisor_pin]', page).value.trim(); if (p.length < 4) { toast('Kode minimal 4 karakter', '', 'err'); return; } save({ supervisor_pin: p }, 'Kode supervisor diganti'); $('[name=supervisor_pin]', page).value = ''; };
+  $('[data-save-pin]', page).onclick = () => { const p = $('[name=supervisor_pin]', page).value.trim(); if (p.length < 4) { toast('PIN minimal 4 karakter', '', 'err'); return; } save({ supervisor_pin: p }, 'PIN admin diganti'); $('[name=supervisor_pin]', page).value = ''; };
   $('[data-myip]', page).onclick = () => { const t = $('[name=ips]', page); const list = t.value.split(/[\s,;]+/).filter(Boolean); if (!list.includes(s._my_ip)) list.push(s._my_ip); t.value = list.join(', '); };
   $('[data-save-att]', page).onclick = () => { const v = formValues($('[data-att]', page)); save({ work_schedule: JSON.stringify({ startTime: v.startTime || '08:00', toleranceMinutes: num(v.toleranceMinutes) }), store_network: JSON.stringify({ ips: v.ips, wifiName: v.wifiName }) }, 'Jadwal & WiFi disimpan'); };
 };
@@ -641,6 +659,53 @@ V.printer = async (page) => {
   };
   Printer.listeners.add(draw); draw();
   return () => Printer.listeners.delete(draw);
+};
+
+// =====================================================================
+//  PENGIRIMAN
+// =====================================================================
+V.pengiriman = async (page) => {
+  const ST = { baru: ['Perlu dikirim', 'amber'], dikirim: ['Dalam perjalanan', 'blue'], selesai: ['Selesai', 'green'], batal: ['Batal', 'red'] };
+  let list = [], tab = 'baru';
+  page.innerHTML = head('Pengiriman', 'Pesanan yang dikirim lewat J&T, JNE, Grab, GoSend, Maxim, atau kurir toko.') + `<div class="row wrap" style="justify-content:space-between;margin-bottom:12px"><div data-tabwrap></div><div class="search" style="min-width:240px">${icon('search')}<input class="input" data-q placeholder="Cari nama, HP, resi, invoice…"></div></div><div data-body></div>`;
+  const body = $('[data-body]', page);
+  const msg = (sh) => `Halo ${sh.recipient}, pesanan Anda dari ${App.settings.store_name || 'Sofeeya Store'} (${sh.invoice}) ${sh.status === 'selesai' ? 'sudah diterima. Terima kasih telah berbelanja!' : `sudah dikirim via ${sh.courier}.`}${sh.resi && sh.status !== 'selesai' ? `\nNo. resi / pelacakan: ${sh.resi}` : ''}${trackURL(sh) && sh.status !== 'selesai' ? `\nLacak: ${trackURL(sh)}` : ''}`;
+  const load = async () => { list = await db.list('shipments', { limit: 1000 }); draw(); };
+  const draw = () => {
+    const counts = Object.fromEntries(Object.keys(ST).map((k) => [k, list.filter((x) => x.status === k).length]));
+    $('[data-tabwrap]', page).innerHTML = tabs([['baru', `Perlu dikirim (${counts.baru})`], ['dikirim', `Dalam perjalanan (${counts.dikirim})`], ['selesai', 'Selesai'], ['batal', 'Batal'], ['all', 'Semua']], tab);
+    bindTabs($('[data-tabwrap]', page), (t) => { tab = t; draw(); });
+    const q = $('[data-q]', page).value.toLowerCase();
+    const l = list.filter((x) => (tab === 'all' || x.status === tab) && (!q || [x.recipient, x.phone, x.resi, x.invoice, x.courier, x.address].join(' ').toLowerCase().includes(q)));
+    body.innerHTML = l.length ? `<div class="ship-grid">${l.map((sh) => { const c = courierInfo(sh.courier); const tr = trackURL(sh); return `
+      <article class="panel ship-card">
+        <div class="row"><span class="chip blue">${icon('truck')} ${esc(sh.courier)}</span><span class="chip ${ST[sh.status][1]}">${ST[sh.status][0]}</span><span class="grow"></span><span class="small muted">${fmtDT(sh.created)}</span></div>
+        <div><b style="font-size:15px">${esc(sh.recipient || '-')}</b> ${sh.phone ? `<span class="muted">· ${esc(sh.phone)}</span>` : ''}</div>
+        <p class="ship-addr">${esc(sh.address || '-')}</p>
+        <div class="small muted">${esc(sh.invoice)} · ongkir ${sh.fee ? rupiah(sh.fee) : 'dibayar penerima'}${sh.note ? ' · ' + esc(sh.note) : ''}</div>
+        ${sh.resi ? `<div class="small">Resi / pelacakan: <b>${tr ? `<a href="${esc(tr)}" target="_blank" rel="noopener">${esc(sh.resi)}</a>` : esc(sh.resi)}</b></div>` : ''}
+        <div class="row wrap" style="margin-top:4px">
+          ${sh.status === 'baru' ? `${c.site ? `<a class="btn sm" href="${esc(c.site)}" target="_blank" rel="noopener">Buka ${esc(c.id)}</a>` : ''}<button class="btn sm" data-copy="${sh.id}">Salin alamat</button><button class="btn sm primary" data-send="${sh.id}">Isi resi & kirim</button>` : ''}
+          ${sh.status === 'dikirim' ? `${tr ? `<a class="btn sm" href="${esc(tr)}" target="_blank" rel="noopener">Lacak</a>` : ''}<button class="btn sm" data-send="${sh.id}">Ubah resi</button><button class="btn sm primary" data-done="${sh.id}">Tandai diterima</button>` : ''}
+          ${sh.phone && sh.status !== 'batal' ? `<a class="btn sm" target="_blank" rel="noopener" href="${esc(waLink(sh.phone, msg(sh)))}">${icon('wa')}WA</a>` : ''}
+          <button class="btn sm" data-label="${sh.id}">${icon('printer')}Label</button>
+          <span class="grow"></span><button class="btn sm icon ghost" data-edit="${sh.id}" aria-label="Ubah">${icon('edit')}</button>
+        </div>
+      </article>`; }).join('')}</div>` : `<div class="panel">${emptyState(tab === 'baru' ? 'Tidak ada pesanan yang menunggu dikirim. Pengiriman dibuat dari tombol "Kirim" di kasir.' : 'Tidak ada data.', 'truck')}</div>`;
+  };
+  $('[data-q]', page).oninput = debounce(draw, 150);
+  body.onclick = async (e) => {
+    const g = (k) => e.target.closest(`[data-${k}]`)?.dataset[k];
+    const id = +(g('send') || g('done') || g('copy') || g('label') || g('edit') || 0); if (!id) return;
+    const sh = list.find((x) => x.id === id);
+    if (g('copy')) { const txt = `${sh.recipient} (${sh.phone})\n${sh.address}`; try { await navigator.clipboard.writeText(txt); toast('Alamat disalin', 'Tempel di aplikasi kurir.', 'ok'); } catch (ex) { prompt('Salin alamat:', txt); } }
+    if (g('send')) crudModal({ title: 'Nomor resi / link pelacakan', fields: `<p class="muted" style="margin:0">${esc(sh.courier)} · ${esc(sh.recipient)}</p>${field(courierInfo(sh.courier).type === 'paket' ? 'Nomor resi' : 'Link pelacakan / nama & plat driver', 'resi', sh.resi, { hint: courierInfo(sh.courier).type === 'paket' ? 'Resi dari J&T/JNE/SiCepat bisa dilacak otomatis.' : 'Salin link "bagikan perjalanan" dari aplikasi Grab/Gojek/Maxim.' })}`, onSave: async (v) => { await db.update('shipments', id, { resi: v.resi, status: 'dikirim' }); toast('Pesanan ditandai dikirim', sh.recipient, 'ok'); load(); } });
+    if (g('done')) { await db.update('shipments', id, { status: 'selesai' }); toast('Pesanan diterima', sh.recipient, 'ok'); load(); }
+    if (g('label')) printHTML(`<div style="width:95mm;border:2px solid #000;padding:4mm;font-family:Arial,sans-serif;font-size:11pt"><div style="display:flex;justify-content:space-between;font-weight:700"><span>${esc(sh.courier)}</span><span>${esc(sh.invoice)}</span></div><hr><div style="font-size:9pt">Penerima</div><div style="font-size:14pt;font-weight:700">${esc(sh.recipient)}</div><div>${esc(sh.phone)}</div><div style="margin-top:2mm">${esc(sh.address)}</div>${sh.note ? `<div style="margin-top:2mm;font-size:9pt">Catatan: ${esc(sh.note)}</div>` : ''}<hr><div style="font-size:9pt">Pengirim: ${esc(App.settings.store_name || 'Sofeeya Store')} ${esc(App.settings.receipt_phone || '')}</div>${sh.resi && courierInfo(sh.courier).type === 'paket' ? `<div style="margin-top:2mm;height:14mm">${code128SVG(sh.resi)}</div><div style="text-align:center;font-size:9pt">${esc(sh.resi)}</div>` : ''}</div>`);
+    if (g('edit')) crudModal({ title: 'Ubah pengiriman', size: 'wide', fields: `<div class="grid2"><label class="f">Kurir<select class="input" name="courier">${COURIERS.map((c) => `<option ${c.id === sh.courier ? 'selected' : ''}>${esc(c.id)}</option>`).join('')}</select></label><label class="f">Status<select class="input" name="status">${Object.entries(ST).map(([k, [l]]) => `<option value="${k}" ${k === sh.status ? 'selected' : ''}>${l}</option>`).join('')}</select></label>${field('Nama penerima', 'recipient', sh.recipient)}${field('No. HP', 'phone', sh.phone)}</div><label class="f">Alamat<textarea class="input" name="address">${esc(sh.address)}</textarea></label><div class="grid2">${field('Ongkir (Rp)', 'fee', sh.fee, { numeric: true, hint: 'Hanya catatan; total transaksi tidak berubah.' })}${field('Resi / link', 'resi', sh.resi)}</div>${field('Catatan', 'note', sh.note)}`, onSave: async (v) => { await db.update('shipments', id, v); load(); } });
+  };
+  await load();
+  return () => { body.onclick = null; };
 };
 
 // =====================================================================

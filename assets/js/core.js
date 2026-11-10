@@ -44,6 +44,8 @@ const ICONS = {
   finger: '<path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4M14 13.12c0 2.38 0 6.38-1 8.88M17.29 21.02c.12-.6.43-2.3.5-3.02M2 12a10 10 0 0 1 18-6M2 16h.01M21.8 16c.2-2 .131-5.354 0-6M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2M8.65 22c.21-.66.45-1.32.57-2M9 6.8a6 6 0 0 1 9 5.2v2"/>',
   arrowleft: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
   star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1z"/>',
+  truck: '<path d="M1 4h14v12H1zM15 9h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/>',
+  wa: '<path d="M21 11.5a8.4 8.4 0 0 1-12.5 7.4L3 21l2.1-5.3A8.5 8.5 0 1 1 21 11.5z"/>',
   user_plus: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>',
 };
 function icon(name, cls = '') {
@@ -138,10 +140,10 @@ function alertBox(title, message, okLabel = 'Mengerti') {
     m.$('[data-ok]').onclick = () => m.close();
   });
 }
-function askPin(reason = 'Masukkan kode supervisor untuk melanjutkan.') {
+function askPin(reason = 'Masukkan PIN admin untuk melanjutkan.') {
   return new Promise((resolve) => {
     let done = false;
-    const m = modal({ title: 'Kode supervisor', body: `<p class="muted" style="margin-top:0">${esc(reason)}</p><input class="input" type="password" inputmode="numeric" autocomplete="off" data-pin placeholder="••••">`,
+    const m = modal({ title: 'PIN admin', body: `<p class="muted" style="margin-top:0">${esc(reason)}</p><input class="input" type="password" inputmode="numeric" autocomplete="off" data-pin placeholder="••••">`,
       foot: `<button class="btn" data-no>Batal</button><button class="btn primary" data-yes>Konfirmasi</button>`,
       onClose: () => { if (!done) resolve(null); } });
     const go = async () => {
@@ -149,7 +151,7 @@ function askPin(reason = 'Masukkan kode supervisor untuk melanjutkan.') {
       if (!pin) return;
       try {
         const r = await api('verify_pin', { pin });
-        if (!r.ok) { toast('Kode supervisor salah', '', 'err'); return; }
+        if (!r.ok) { toast('PIN admin salah', '', 'err'); return; }
         done = true; m.close(); resolve(pin);
       } catch (e) { toastErr(e); }
     };
@@ -409,6 +411,20 @@ const Printer = {
   },
   disconnect() { try { this.device?.gatt?.disconnect(); } catch (e) { /* abaikan */ } this.char = null; this.set('disconnected'); },
 };
+const COURIERS = [
+  { id: 'J&T Express', type: 'paket', site: 'https://jet.co.id/track' },
+  { id: 'JNE', type: 'paket', site: 'https://www.jne.co.id/tracking-package' },
+  { id: 'SiCepat', type: 'paket', site: 'https://www.sicepat.com/checkAwb' },
+  { id: 'Shopee Xpress', type: 'paket', site: 'https://spx.co.id/' },
+  { id: 'Grab Express', type: 'instan', site: 'https://www.grab.com/id/express/' },
+  { id: 'GoSend', type: 'instan', site: 'https://www.gojek.com/id-id/gosend' },
+  { id: 'Maxim', type: 'instan', site: 'https://taximaxim.com/id/' },
+  { id: 'Kurir toko', type: 'instan', site: '' },
+];
+function courierInfo(id) { return COURIERS.find((c) => c.id === id) || { id, type: 'paket', site: '' }; }
+function trackURL(sh) { if (!sh || !sh.resi) return ''; if (/^https?:\/\//i.test(sh.resi)) return sh.resi; return courierInfo(sh.courier).type === 'paket' ? 'https://cekresi.com/?noresi=' + encodeURIComponent(sh.resi) : ''; }
+function waLink(phone, text) { const n = String(phone || '').replace(/\D/g, '').replace(/^0/, '62'); return 'https://wa.me/' + n + '?text=' + encodeURIComponent(text); }
+function feePresets() { try { const a = JSON.parse(App.settings.fee_presets || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.label) : []; } catch (e) { return []; } }
 const PAY = { cash: 'Tunai', qris: 'QRIS', transfer: 'Debit/Transfer' };
 function escposReceipt(trx, s, width = 32) {
   const ESC = '\x1B', GS = '\x1D';
@@ -429,6 +445,7 @@ function escposReceipt(trx, s, width = 32) {
   o += ESC + '!\x08' + R('TOTAL', rupiah(trx.total)) + ESC + '!\x00';
   o += R('Bayar (' + (PAY[trx.payment_method] || 'Tunai') + ')', rupiah(trx.payment)) + R('Kembali', rupiah(trx.change));
   if (trx.member_name) o += L() + R('Poin didapat', '+' + (trx.points_earned || 0)) + R('Total poin', String(trx.member_points_after || 0));
+  if (trx.shipping) o += L() + 'Kirim: ' + trx.shipping.courier + '\n' + (trx.shipping.recipient || '') + ' ' + (trx.shipping.phone || '') + '\n' + (trx.shipping.address || '') + '\n';
   if (trx.discount > 0) o += L() + ESC + 'a\x01' + 'Anda hemat ' + rupiah(trx.discount) + '\n';
   o += L() + ESC + 'a\x01';
   if (s.receipt_footer1) o += s.receipt_footer1 + '\n';
@@ -459,6 +476,7 @@ function receiptHTML(trx, s, wide = false) {
     <div class="r"><span>Kembali</span><span>${rupiah(trx.change)}</span></div>
     ${trx.member_name ? `<hr><div class="r"><span>Poin didapat</span><span>+${trx.points_earned || 0}</span></div><div class="r"><span>Total poin</span><span>${trx.member_points_after || 0}</span></div>` : ''}
     ${trx.discount > 0 ? `<hr><div class="c"><b>Anda hemat ${rupiah(trx.discount)}</b></div>` : ''}
+    ${trx.shipping ? `<hr><div><b>Dikirim via ${esc(trx.shipping.courier)}</b></div><div>${esc(trx.shipping.recipient)}${trx.shipping.phone ? ' (' + esc(trx.shipping.phone) + ')' : ''}</div><div>${esc(trx.shipping.address)}</div>${trx.shipping.resi ? `<div>Resi: ${esc(trx.shipping.resi)}</div>` : ''}` : ''}
     ${trx.note ? `<hr><div>Catatan: ${esc(trx.note)}</div>` : ''}
     <hr><div class="c">${esc(s.receipt_footer1 || '')}</div><div class="c">${esc(s.receipt_footer2 || '')}</div></div>`;
 }

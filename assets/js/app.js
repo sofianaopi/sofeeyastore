@@ -9,6 +9,7 @@ const App = {
     { id: 'kasir', label: 'Kasir', icon: 'kasir', can: () => true },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', can: (u) => u.role === 'admin' },
     { id: 'laporan', label: 'Laporan', icon: 'laporan', can: () => true },
+    { id: 'pengiriman', label: 'Pengiriman', icon: 'truck', can: () => true },
     { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },
     { id: 'promo', label: 'Promo', icon: 'promo', can: (u) => u.promo_access },
     { id: 'member', label: 'Member', icon: 'member', can: () => true },
@@ -171,7 +172,7 @@ async function Kasir(page) {
   const S = App.settings, isAdmin = App.isAdmin();
   const st = {
     products: [], promos: [], members: [], sales: [], infos: [], rewards: [],
-    cart: [], cat: 'Semua', q: '', memberId: null, vouchers: [], fees: [], reward: null, note: '', offerShown: false,
+    cart: [], cat: 'Semua', q: '', memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false,
   };
   page.innerHTML = `
   <div class="pos">
@@ -195,6 +196,7 @@ async function Kasir(page) {
             <button class="btn sm" data-member>${icon('member')}<span data-membername>Pilih member</span></button>
             <button class="btn sm" data-voucher>${icon('promo')}Kode promo</button>
             <button class="btn sm" data-fee>${icon('wallet')}Biaya</button>
+            <button class="btn sm" data-ship>${icon('truck')}<span data-shiplabel>Kirim</span></button>
           </div>
         </div>
         <div data-upsell></div>
@@ -241,11 +243,12 @@ async function Kasir(page) {
     const rewardDisc = st.reward && st.reward.type === 'discount' ? st.reward.discount_amount : 0;
     const prodDisc = cart.reduce((s, c) => s + (c.discount || 0) * c.qty, 0);
     const discount = Math.min(subtotal, pc.total + memberDisc + rewardDisc + prodDisc);
-    const fee = st.fees.reduce((s, f) => s + f.amount, 0);
+    const shipFee = st.shipping ? st.shipping.fee || 0 : 0;
+    const fee = st.fees.reduce((s, f) => s + f.amount, 0) + shipFee;
     const total = Math.max(0, subtotal - discount + fee);
     const count = cart.reduce((s, c) => s + c.qty, 0);
     const promoNames = eff.filter((p) => pc.perPromo[p.id]).map((p) => p.name);
-    return { subtotal, pc, memberDisc, voucher, blocked, rewardDisc, prodDisc, discount, fee, total, count, promoNames, eff, m };
+    return { subtotal, pc, memberDisc, voucher, blocked, rewardDisc, prodDisc, discount, fee, shipFee, total, count, promoNames, eff, m };
   }
 
   // ---------- render
@@ -256,7 +259,7 @@ async function Kasir(page) {
   function renderPromos() {
     const r = calc();
     const list = activePromos();
-    el('[data-promos]').innerHTML = list.map((p) => `<button class="pcard ${r.pc.perPromo[p.id] ? 'on' : ''}" data-promo="${p.id}"><b>${esc(p.name)}</b><span>${esc(Promo.describe(p))}</span><em>${p.code ? 'Kode ' + esc(p.code) : 'Berlaku otomatis'}${(p.categories || []).length ? ' · ' + esc(p.categories.join(', ')) : ''}</em></button>`).join('');
+    el('[data-promos]').innerHTML = list.map((p) => `<button class="pcard ${r.pc.perPromo[p.id] ? 'on' : ''}" data-promo="${p.id}" title="${esc(p.name)}"><span class="pc-top"><b>${esc(p.name)}</b>${r.pc.perPromo[p.id] ? icon('check', 'pc-ok') : ''}</span><span class="pc-val">${esc(Promo.describe(p))}</span>${p.code ? `<span class="pc-code">${esc(p.code)}</span>` : '<span class="pc-auto">Otomatis</span>'}</button>`).join('');
     el('[data-promos]').classList.toggle('hidden', !list.length);
     const segs = [...st.infos.map((i) => i.title + (i.content ? ' — ' + i.content : '')), ...list.map((p) => `Promo ${p.name}: ${Promo.describe(p)}${p.code ? ' (kode ' + p.code + ')' : ''}`)];
     const text = segs.length ? segs.join('      •      ') : 'Selamat bekerja! Belum ada info atau promo aktif.';
@@ -287,6 +290,8 @@ async function Kasir(page) {
     const m = r.m;
     el('[data-membername]').textContent = m ? m.name + ' · ' + fmtNum(m.points) + ' poin' : 'Pilih member';
     el('[data-member]').classList.toggle('primary', !!m);
+    el('[data-shiplabel]').textContent = st.shipping ? st.shipping.courier : 'Kirim';
+    el('[data-ship]').classList.toggle('primary', !!st.shipping);
     el('[data-items]').innerHTML = st.cart.length ? st.cart.map((c) => {
       const ip = r.pc.itemPromo[c.id]; const disc = (ip ? ip.amount : 0) + (c.discount || 0) * c.qty;
       return `<div class="line"><div class="t"><b>${esc(c.name)}</b><button class="btn ghost icon sm" data-del="${c.id}" aria-label="Hapus">${icon('trash')}</button></div>
@@ -299,6 +304,7 @@ async function Kasir(page) {
     const chips = [
       ...st.vouchers.map((p) => `<span class="chip blue">${esc(p.code)} <button data-rmv="${p.id}" aria-label="Hapus promo">×</button></span>`),
       ...st.fees.map((f) => `<span class="chip amber">${esc(f.label)} ${rupiah(f.amount)} <button data-rmf="${f.id}" aria-label="Hapus biaya">×</button></span>`),
+      st.shipping ? `<span class="chip blue">${icon('truck')} ${esc(st.shipping.courier)} · ${esc(st.shipping.recipient || 'tanpa nama')} <button data-rms aria-label="Batalkan pengiriman">×</button></span>` : '',
       st.reward ? `<span class="chip gold">${icon('gift')} ${esc(st.reward.name)} <button data-rmr aria-label="Hapus reward">×</button></span>` : '',
       m && r.blocked ? '<span class="chip red">Diskon member aktif — promo tidak digabung</span>' : '',
     ].filter(Boolean);
@@ -315,7 +321,8 @@ async function Kasir(page) {
       ${r.pc.total > 0 ? `<div class="r minus"><span>Promo</span><span>−${rupiah(r.pc.total)}</span></div>` : ''}
       ${r.memberDisc > 0 ? `<div class="r minus"><span>${r.voucher > 0 ? 'Voucher member' : 'Diskon member ' + num(S.member_discount_percent) + '%'}</span><span>−${rupiah(r.memberDisc)}</span></div>` : ''}
       ${r.rewardDisc > 0 ? `<div class="r minus"><span>Tukar poin</span><span>−${rupiah(r.rewardDisc)}</span></div>` : ''}
-      ${r.fee > 0 ? `<div class="r"><span>Biaya tambahan</span><span>+${rupiah(r.fee)}</span></div>` : ''}
+      ${st.fees.map((f) => `<div class="r"><span>${esc(f.label)}</span><span>+${rupiah(f.amount)}</span></div>`).join('')}
+      ${st.shipping ? `<div class="r"><span>Ongkir ${esc(st.shipping.courier)}</span><span>${r.shipFee ? '+' + rupiah(r.shipFee) : 'dibayar penerima'}</span></div>` : ''}
       <div class="r big"><span>Total</span><span>${rupiah(r.total)}</span></div>
       ${m && eligible.length && !st.reward ? `<button class="btn sm" data-reward style="margin-top:6px;width:100%">${icon('gift')} ${eligible.length} reward poin bisa ditukar</button>` : ''}`;
     el('[data-pay]').disabled = !st.cart.length;
@@ -407,8 +414,34 @@ async function Kasir(page) {
     st.vouchers.push(p); toast('Promo dipakai', p.name, 'ok'); renderCart(); return true;
   }
   function feeModal() {
-    const m = modal({ title: 'Biaya tambahan', body: `<div class="stack" data-f>${field('Keterangan', 'label', '', { placeholder: 'Ongkir, jahit, bungkus kado…' })}${field('Nominal (Rp)', 'amount', '', { numeric: true })}</div>`, foot: '<button class="btn primary" data-ok>Tambahkan</button>' });
-    m.$('[data-ok]').onclick = () => { const v = formValues(m.$('[data-f]')); if (!v.label || !(v.amount > 0)) { toast('Isi keterangan dan nominal', '', 'err'); return; } st.fees.push({ id: uid(), label: v.label, amount: v.amount }); m.close(); renderCart(); };
+    const presets = feePresets();
+    const m = modal({ title: 'Biaya tambahan', body: `${presets.length ? `<p class="small muted" style="margin:0 0 8px">Pilih cepat (nominal bisa diubah):</p><div class="quick" style="margin-bottom:14px">${presets.map((f, i) => `<button data-pre="${i}">${esc(f.label)} · ${rupiah(f.amount)}</button>`).join('')}</div>` : ''}<div class="stack" data-f>${field('Nama biaya', 'label', '', { placeholder: 'Ongkir Maxim, jahit, bungkus kado…' })}${field('Nominal (Rp)', 'amount', '', { numeric: true })}</div>${App.isAdmin() ? '<p class="small muted">Daftar pilihan cepat diatur di Pengaturan toko → Biaya tambahan.</p>' : ''}`, foot: '<button class="btn primary" data-ok>Tambahkan biaya</button>' });
+    m.$$('[data-pre]').forEach((b) => (b.onclick = () => { const f = presets[+b.dataset.pre]; m.$('[name=label]').value = f.label; m.$('[name=amount]').value = f.amount; m.$('[name=amount]').focus(); }));
+    m.$('[data-ok]').onclick = () => { const v = formValues(m.$('[data-f]')); if (!v.label || !(v.amount > 0)) { toast('Isi nama biaya dan nominal', '', 'err'); return; } st.fees.push({ id: uid(), label: v.label, amount: v.amount }); m.close(); renderCart(); };
+  }
+  function shipModal() {
+    const cur = st.shipping || { courier: '', recipient: '', phone: '', address: '', fee: '', note: '' };
+    const mem = member();
+    if (!st.shipping && mem) { cur.recipient = mem.name; cur.phone = mem.phone; }
+    const presets = feePresets();
+    const m = modal({ title: 'Kirim pesanan', size: 'wide', body: `<div class="stack">
+      <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Kurir</div><div class="quick" data-cour>${COURIERS.map((c) => `<button data-c="${esc(c.id)}" class="${cur.courier === c.id ? 'on' : ''}">${esc(c.id)}</button>`).join('')}</div></div>
+      <div class="grid2" data-f>${field('Nama penerima', 'recipient', cur.recipient)}${field('No. HP / WA penerima', 'phone', cur.phone, { type: 'tel' })}</div>
+      <label class="f">Alamat lengkap<textarea class="input" name="address" placeholder="Jalan, nomor rumah, kelurahan, kecamatan, patokan">${esc(cur.address || '')}</textarea></label>
+      <div class="grid2">${field('Ongkir yang ditagih ke pembeli (Rp)', 'fee', cur.fee || '', { numeric: true, hint: 'Isi 0 bila ongkir dibayar penerima / gratis ongkir.' })}${field('Catatan untuk kurir', 'note', cur.note, { placeholder: 'Titip satpam, hubungi dulu…' })}</div>
+      ${presets.length ? `<div class="quick" data-pre>${presets.map((f, i) => `<button data-p="${i}">${esc(f.label)} · ${rupiah(f.amount)}</button>`).join('')}</div>` : ''}
+      <p class="small muted" style="margin:0">Setelah transaksi selesai, pesan kurir lewat aplikasinya lalu isi nomor resi / link pelacakan di menu <b>Pengiriman</b>.</p></div>`,
+      foot: `${st.shipping ? '<button class="btn danger" data-rm>Batalkan pengiriman</button>' : ''}<button class="btn primary" data-ok>Simpan pengiriman</button>` });
+    let courier = cur.courier;
+    m.$$('[data-c]').forEach((b) => (b.onclick = () => { courier = b.dataset.c; m.$$('[data-c]').forEach((x) => x.classList.toggle('on', x === b)); const pre = presets.find((f) => f.label.toLowerCase().includes(courier.split(' ')[0].toLowerCase().replace('&', ''))) || presets.find((f) => f.label.toLowerCase().includes(courier.toLowerCase().split(' ')[0])); if (pre && !num(m.$('[name=fee]').value)) m.$('[name=fee]').value = pre.amount; }));
+    m.$$('[data-p]').forEach((b) => (b.onclick = () => { m.$('[name=fee]').value = presets[+b.dataset.p].amount; }));
+    const rm = m.$('[data-rm]'); if (rm) rm.onclick = () => { st.shipping = null; m.close(); renderCart(); };
+    m.$('[data-ok]').onclick = () => {
+      const v = { recipient: m.$('[name=recipient]').value.trim(), phone: m.$('[name=phone]').value.trim(), address: m.$('[name=address]').value.trim(), fee: num(m.$('[name=fee]').value), note: m.$('[name=note]').value.trim() };
+      if (!courier) { toast('Pilih kurir dulu', '', 'err'); return; }
+      if (!v.recipient || !v.address) { toast('Isi nama penerima dan alamat', '', 'err'); return; }
+      st.shipping = { courier, ...v }; m.close(); renderCart();
+    };
   }
   function rewardModal() {
     const mem = member(); if (!mem) return;
@@ -418,22 +451,23 @@ async function Kasir(page) {
   }
   async function priceModal(id) {
     const c = st.cart.find((x) => x.id === id); if (!c) return;
-    const m = modal({ title: 'Ubah harga', body: `<p class="muted" style="margin-top:0">${esc(c.name)} — harga normal ${rupiah(c.original_price)}</p>${field('Harga baru per pcs', 'price', c.price, { numeric: true })}${isAdmin ? '' : '<p class="small muted">Perubahan harga memerlukan kode supervisor.</p>'}`, foot: `<button class="btn" data-reset>Kembalikan normal</button><button class="btn primary" data-ok>Simpan harga</button>` });
+    const m = modal({ title: 'Ubah harga', body: `<p class="muted" style="margin-top:0">${esc(c.name)} — harga normal ${rupiah(c.original_price)}</p>${field('Harga baru per pcs', 'price', c.price, { numeric: true })}${isAdmin ? '' : '<p class="small muted">Perubahan harga memerlukan PIN admin.</p>'}`, foot: `<button class="btn" data-reset>Kembalikan normal</button><button class="btn primary" data-ok>Simpan harga</button>` });
     const save = async (price) => {
-      if (!isAdmin) { m.close(); const pin = await askPin('Masukkan kode supervisor untuk mengubah harga.'); if (!pin) return; }
+      if (!isAdmin) { m.close(); const pin = await askPin('Masukkan PIN admin untuk mengubah harga.'); if (!pin) return; }
       else m.close();
       c.price = Math.max(0, price); toast('Harga diperbarui', `${c.name}: ${rupiah(c.price)}`); renderCart();
     };
     m.$('[data-ok]').onclick = () => save(num(m.$('[name=price]').value));
     m.$('[data-reset]').onclick = () => { c.price = c.original_price; m.close(); renderCart(); };
   }
-  function addProductModal() {
-    const m = modal({ title: 'Tambah barang baru', size: 'wide', body: `<div class="grid2" data-f>${field('Nama barang', 'name')}${field('Barcode / kode', 'barcode', scan.value.trim())}${field('Kategori', 'category', '', { attrs: 'list="catlist"' })}${field('Stok', 'stock', '', { numeric: true })}${field('Harga beli', 'cost', '', { numeric: true })}${field('Harga jual', 'price', '', { numeric: true })}${field('Komisi sales / pcs', 'commission', '', { numeric: true })}</div><datalist id="catlist">${[...new Set(st.products.map((p) => p.category).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist>${isAdmin ? '' : '<p class="small muted">Menambah barang dari kasir memerlukan kode supervisor.</p>'}`, foot: '<button class="btn primary" data-ok>Simpan barang</button>' });
+  async function addProductModal() {
+    let pin = '';
+    if (!isAdmin) { pin = await askPin('Menambah barang hanya untuk admin. Minta admin memasukkan PIN admin.'); if (!pin) return; }
+    const m = modal({ title: 'Tambah barang baru', size: 'wide', body: `<div class="grid2" data-f>${field('Nama barang', 'name')}${field('Barcode / kode', 'barcode', scan.value.trim())}${field('Kategori', 'category', '', { attrs: 'list="catlist"' })}${field('Stok', 'stock', '', { numeric: true })}${field('Harga beli', 'cost', '', { numeric: true })}${field('Harga jual', 'price', '', { numeric: true })}${field('Komisi sales / pcs', 'commission', '', { numeric: true })}</div><datalist id="catlist">${[...new Set(st.products.map((p) => p.category).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist>${isAdmin ? '' : '<p class="small muted"><span class="chip green">PIN admin diterima</span> Barang baru langsung tersimpan di data produk.</p>'}`, foot: '<button class="btn primary" data-ok>Simpan barang</button>' });
     m.$('[data-ok]').onclick = async () => {
       const v = formValues(m.$('[data-f]'));
       if (!v.name) { toast('Nama barang wajib diisi', '', 'err'); return; }
-      let pin = '';
-      if (!isAdmin) { pin = await askPin('Masukkan kode supervisor untuk menambah barang.'); if (!pin) return; }
+      if (!(v.price > 0)) { toast('Harga jual wajib diisi', '', 'err'); return; }
       try { const rec = await db.create('products', v, { pin }); st.products.push(rec); st.products.sort((a, b) => a.name.localeCompare(b.name)); m.close(); toast('Barang ditambahkan', rec.name, 'ok'); renderCats(); if (rec.stock > 0) addToCart(rec); else renderGrid(); }
       catch (ex) { toastErr(ex); }
     };
@@ -489,7 +523,7 @@ async function Kasir(page) {
       const items = st.cart.map((c) => { const ip = r.pc.itemPromo[c.id]; const line = c.price * c.qty; return { id: c.id, qty: c.qty, price: c.price, discount: c.discount, promoName: ip ? ip.promoName : '', itemDiscount: Math.round((ip ? ip.amount : 0) + (c.discount || 0) * c.qty + (r.subtotal ? (line / r.subtotal) * extra : 0)) }; });
       try {
         const trx = await api('checkout', {
-          items, discount: r.discount, fee: r.fee, fee_note: st.fees.map((f) => `${f.label} ${rupiah(f.amount)}`).join('; '),
+          items, discount: r.discount, fee: r.fee, fee_note: [...st.fees.map((f) => `${f.label} ${rupiah(f.amount)}`), st.shipping && st.shipping.fee ? `Ongkir ${st.shipping.courier} ${rupiah(st.shipping.fee)}` : ''].filter(Boolean).join('; '), shipping: st.shipping,
           payment: payNum, payment_method: method, member_id: st.memberId, reward_id: st.reward ? st.reward.id : null, voucher_applied: r.voucher > 0,
           sales_code: m.$('[name=sales]').value.trim(), promo_name: [...r.promoNames, st.reward ? 'Tukar poin: ' + st.reward.name : ''].filter(Boolean).join(', '),
           note: [m.$('[name=note]').value.trim(), st.reward && st.reward.type === 'product' ? 'Hadiah poin: ' + st.reward.product_name : ''].filter(Boolean).join(' | '),
@@ -500,13 +534,13 @@ async function Kasir(page) {
   }
   function doneModal(trx) {
     const m = modal({ title: 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
-      foot: `<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>Transaksi baru</button>`, onClose: () => newSale() });
+      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Sofeeya Store'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>Transaksi baru</button>`, onClose: () => newSale() });
     m.$('[data-print]').onclick = () => printHTML(receiptHTML(trx, S));
     const bt = m.$('[data-bt]'); if (bt) bt.onclick = async () => { try { await Printer.print(escposReceipt(trx, S)); toast('Struk dikirim ke printer', '', 'ok'); } catch (ex) { toastErr(ex); } };
     m.$('[data-new]').onclick = () => m.close();
   }
   async function newSale() {
-    Object.assign(st, { cart: [], memberId: null, vouchers: [], fees: [], reward: null, note: '', offerShown: false });
+    Object.assign(st, { cart: [], memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false });
     document.body.classList.remove('cart-open');
     try { const [p, mem] = await Promise.all([db.list('products'), db.list('members')]); st.products = p; st.members = mem; } catch (e) { /* biarkan */ }
     refresh(); if (window.innerWidth > 900) scan.focus();
@@ -533,12 +567,14 @@ async function Kasir(page) {
     if (t.dataset.rmv) st.vouchers = st.vouchers.filter((p) => p.id !== +t.dataset.rmv);
     if (t.dataset.rmf) st.fees = st.fees.filter((f) => f.id !== t.dataset.rmf);
     if (t.dataset.rmr !== undefined) st.reward = null;
+    if (t.dataset.rms !== undefined) st.shipping = null;
     renderCart();
   };
   el('[data-totals]').onclick = (e) => { if (e.target.closest('[data-reward]')) rewardModal(); };
   el('[data-member]').onclick = memberModal;
   el('[data-voucher]').onclick = voucherModal;
   el('[data-fee]').onclick = feeModal;
+  el('[data-ship]').onclick = shipModal;
   el('[data-clear]').onclick = async () => { if (st.cart.length && await confirmBox('Kosongkan keranjang?', 'Semua barang, promo, dan member di keranjang ini akan dihapus.', 'Kosongkan')) newSale(); };
   el('[data-pay]').onclick = requestPay;
   el('[data-opencart]').onclick = () => document.body.classList.add('cart-open');

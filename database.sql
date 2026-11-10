@@ -208,6 +208,24 @@ CREATE TABLE IF NOT EXISTS settings (
   updated DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS shipments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  transaction_id INT NULL,
+  invoice VARCHAR(50) NOT NULL DEFAULT '',
+  courier VARCHAR(60) NOT NULL DEFAULT '',
+  recipient VARCHAR(200) NOT NULL DEFAULT '',
+  phone VARCHAR(50) NOT NULL DEFAULT '',
+  address TEXT NULL,
+  fee DECIMAL(14,2) NOT NULL DEFAULT 0,
+  resi VARCHAR(100) NOT NULL DEFAULT '',
+  status VARCHAR(20) NOT NULL DEFAULT 'baru',   -- baru | dikirim | selesai | batal
+  note VARCHAR(500) NOT NULL DEFAULT '',
+  cashier VARCHAR(200) NOT NULL DEFAULT '',
+  created DATETIME NULL,
+  updated DATETIME NULL,
+  INDEX idx_ship_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS signals (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   triggered_by INT UNSIGNED NULL,
@@ -235,7 +253,9 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('receipt_footer1', 'Terima kasih telah berbelanja', NOW(), NOW()),
  ('receipt_footer2', 'Barang yang sudah dibeli tidak dapat ditukar', NOW(), NOW()),
  ('work_schedule', '{"startTime":"08:00","toleranceMinutes":15}', NOW(), NOW()),
- ('store_network', '{"ips":"","wifiName":""}', NOW(), NOW());
+ ('store_network', '{"ips":"","wifiName":""}', NOW(), NOW()),
+ ('fee_presets', '[{"label":"Ongkir Maxim","amount":15000},{"label":"Ongkir Grab","amount":20000},{"label":"Ongkir J&T","amount":12000},{"label":"Bungkus kado","amount":5000}]', NOW(), NOW()),
+ ('schema_version', '2', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());
