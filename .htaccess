@@ -1,0 +1,23 @@
+# Sofeeya Store POS — pengaturan server Apache/LiteSpeed (Hostinger)
+Options -Indexes
+DirectoryIndex index.html
+
+# Paksa HTTPS — hapus tanda # di 5 baris berikut setelah SSL aktif di hPanel
+# <IfModule mod_rewrite.c>
+#   RewriteEngine On
+#   RewriteCond %{HTTPS} off
+#   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# </IfModule>
+
+# Jangan izinkan file database/teks diunduh langsung
+<FilesMatch "\.(sql|md|log|ini|bak)$">
+  Require all denied
+</FilesMatch>
+
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "same-origin"
+  <FilesMatch "\.(js|css)$">
+    Header set Cache-Control "public, max-age=604800"
+  </FilesMatch>
+</IfModule>
