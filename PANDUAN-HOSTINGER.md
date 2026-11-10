@@ -14,9 +14,23 @@ Versi ini terdiri dari HTML + JavaScript biasa (tanpa proses build), API PHP, da
 | `api/config.php` | **Isi data database Anda di sini** |
 | `database.sql` | Struktur tabel + akun awal, untuk diimpor ke MySQL |
 
+## Langkah 0 — PENTING jika domain Anda dipakai website Horizons
+
+Website buatan **Hostinger Horizons** TIDAK punya menu File Manager, Databases, maupun PHP.
+Karena itu aplikasi ini harus dipasang sebagai **website PHP/HTML biasa** pada paket hosting yang sama:
+
+1. Buka hPanel → menu **Websites** (Situs web) → tombol **+ Add website** (Tambah situs web).
+2. Pilih **Custom PHP/HTML website** / **Empty PHP/HTML website** (website kosong) — JANGAN pilih Horizons, WordPress, atau Website Builder.
+3. Saat diminta domain, pilih salah satu:
+   - **Subdomain** dari domain Anda, misalnya `kasir.domainanda.com` (website Horizons tetap jalan di domain utama), atau
+   - **Domain sementara** gratis dari Hostinger untuk mencoba dulu.
+4. Setelah website baru jadi, klik **Dashboard / Manage** pada website itu. Di menu samping sekarang akan muncul **Files → File Manager** dan **Databases**. Lanjutkan ke Langkah 1.
+
+> Jika menu "Add website" tidak ada, kemungkinan Anda hanya berlangganan Horizons tanpa paket hosting Web/Cloud. Hubungi live chat Hostinger dan tanyakan: "Bagaimana menambah website Custom PHP/HTML di paket saya?"
+
 ## Langkah 1 — Buat database MySQL
 
-1. Masuk **hPanel → Websites → Manage → Databases → Management**.
+1. Di dashboard website baru → **Databases → Management** (pada tampilan baru: **Databases → MySQL Databases**).
 2. Isi *Database name*, *Username*, dan *Password*, lalu klik **Create**.
    Catat ketiganya. Hostinger menambahkan awalan, misalnya `u123456789_sofeeya`.
 3. Klik **Enter phpMyAdmin** pada database tersebut.
@@ -37,10 +51,17 @@ Buka `api/config.php`, lalu ganti tiga baris ini:
 
 ## Langkah 3 — Upload file
 
-1. hPanel → **Files → File Manager** → buka folder `public_html`
-   (atau subfolder, misalnya `public_html/kasir`, jika website utama dipakai untuk hal lain).
+1. Di dashboard website baru → **Files → File Manager** → buka folder `public_html`.
 2. Klik **Upload**, lalu unggah file **ZIP**-nya. Klik kanan → **Extract**.
 3. Pastikan `index.html` berada langsung di dalam folder tujuan, bukan di dalam folder ZIP lagi.
+
+## Alternatif Langkah 2–3: lewat GitHub
+
+1. Ekstrak ZIP di komputer. Buat repositori baru di github.com (pilih **Private**), klik **uploading an existing file**, lalu seret **isi** folder (bukan file ZIP-nya) — `index.html` harus berada di halaman depan repositori. Klik **Commit changes**.
+2. hPanel → website PHP/HTML Anda → **Dashboard → Advanced → Git** → **Continue with GitHub** → izinkan akses → pilih repositori → branch `main`, folder `public_html` → **Deploy**. Folder `public_html` harus kosong saat deploy pertama (hapus file `default.php` bila ada).
+3. **Jangan isi password di `api/config.php` yang ada di GitHub.** Setelah deploy, buka **File Manager → public_html/api**, buat file baru `config.local.php`, salin isi dari `config.local.contoh.php`, lalu isi data database Anda. File ini tidak akan tertimpa saat deploy berikutnya.
+4. Impor `database.sql` tetap lewat phpMyAdmin (Langkah 1).
+5. Setiap kali ada perubahan kode di GitHub, Hostinger otomatis memperbarui website (atau klik **Redeploy**).
 
 ## Langkah 4 — Aktifkan SSL (HTTPS)
 

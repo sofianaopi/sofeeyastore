@@ -41,6 +41,71 @@ function crudModal({ title, fields, data = {}, onSave, size = '' }) {
   };
   return m;
 }
+// ---------------------------------------------------------------- dialog impor (Excel/CSV) dengan template
+const IMPORT_KINDS = {
+  products: {
+    title: 'Impor data barang', aliases: 'product', action: 'product_import', mode: 'products', numeric: ['cost', 'price', 'discount', 'stock', 'commission'], need: ['name'],
+    help: 'Barang dengan barcode atau nama yang sama akan diperbarui; sisanya ditambahkan sebagai barang baru.',
+    file: 'template_produk', headers: ['Nama Produk', 'Barcode / Kode', 'Kategori', 'Harga Beli', 'Harga Jual', 'Diskon / pcs', 'Stok', 'Komisi Sales / pcs'],
+    sample: [['Kemeja Kantor Putih', '8991234500011', 'Kemeja', 75000, 159000, 0, 12, 2000], ['Rok Span Hitam', '8991234500028', 'Rok', 55000, 129000, 20000, 10, 1500]], widths: [30, 18, 14, 12, 12, 12, 8, 18],
+    tips: ['Wajib diisi: Nama Produk dan Harga Jual.', 'Harga & stok cukup angka, mis. 75000 (boleh juga 75.000 atau Rp75.000).', 'Barcode boleh dikosongkan.', 'Diskon / pcs = potongan harga khusus per barang. Isi 0 bila tidak ada.', 'Jangan ubah nama kolom di baris pertama. Boleh menambah/menghapus baris contoh.'],
+    cols: [{ label: 'Nama', key: 'name' }, { label: 'Barcode', key: 'barcode' }, { label: 'Kategori', key: 'category' }, { label: 'Modal', num: true, get: (r) => rupiah(r.cost) }, { label: 'Jual', num: true, get: (r) => rupiah(r.price) }, { label: 'Stok', num: true, get: (r) => (r.stock ?? '') }],
+  },
+  discount: {
+    title: 'Impor harga khusus (diskon)', aliases: 'discount', action: 'product_import', mode: 'discount', numeric: ['discount'], need: ['barcode|name', 'discount'],
+    help: 'Hanya memperbarui kolom Diskon / pcs. Barang dicocokkan lewat barcode, lalu nama. Barang yang tidak ditemukan dilewati.',
+    file: 'template_harga_khusus', headers: ['Barcode / Kode', 'Nama Produk', 'Diskon / pcs'], sample: [['8991234500011', 'Kemeja Kantor Putih', 20000]], widths: [18, 30, 14],
+    tips: ['Isi Barcode atau Nama Produk yang sudah terdaftar.', 'Diskon / pcs dalam rupiah. Isi 0 untuk menghapus diskon.'],
+    cols: [{ label: 'Barcode', key: 'barcode' }, { label: 'Nama', key: 'name' }, { label: 'Diskon', num: true, get: (r) => rupiah(r.discount) }],
+  },
+  members: {
+    title: 'Impor data member', aliases: 'member', action: 'member_import', numeric: ['points'], need: ['name'],
+    help: 'Member dengan nomor HP yang sama akan diperbarui; sisanya ditambahkan.',
+    file: 'template_member', headers: ['Nama', 'Telepon', 'Email', 'Poin'], sample: [['Siti Amelia', '081234567890', 'siti@email.com', 0]], widths: [26, 18, 26, 8],
+    tips: ['Wajib diisi: Nama.', 'Tulis nomor HP sebagai teks agar angka 0 di depan tidak hilang (contoh sudah diformat teks).'],
+    cols: [{ label: 'Nama', key: 'name' }, { label: 'Telepon', key: 'phone' }, { label: 'Email', key: 'email' }, { label: 'Poin', num: true, key: 'points' }],
+  },
+};
+function importDialog(kinds, onDone) {
+  let kind = kinds[0], rows = [];
+  const K = () => IMPORT_KINDS[kind];
+  const m = modal({ title: K().title, size: 'wide', body: `<div class="stack">
+    ${kinds.length > 1 ? `<div class="seg" data-kinds>${kinds.map((k, i) => `<button data-k="${k}" class="${i ? '' : 'on'}">${k === 'products' ? 'Data barang lengkap' : 'Hanya harga khusus'}</button>`).join('')}</div>` : ''}
+    <div class="panel panel-b" style="background:#FAFBFD"><b>1. Unduh template, isi di Excel / WPS / Google Sheets</b><p class="small muted" data-help style="margin:4px 0 10px"></p><button class="btn" data-tpl>${icon('download')}Unduh template (.xlsx)</button></div>
+    <div class="panel panel-b" style="background:#FAFBFD"><b>2. Pilih file yang sudah diisi</b><p class="small muted" style="margin:4px 0 10px">Format yang diterima: .xlsx, .csv (juga .xls). Simpan file terlebih dahulu sebelum diunggah.</p>
+      <label class="btn primary" style="cursor:pointer">${icon('upload')}Pilih file<input type="file" data-input style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none"></label> <span class="small muted" data-fname></span></div>
+    <div data-prev></div></div>`, foot: '<button class="btn" data-cancel>Batal</button><button class="btn primary" data-go disabled>Impor</button>' });
+  const setKind = (k) => { kind = k; rows = []; m.$('.modal-h h2').textContent = K().title; m.$('[data-help]').textContent = K().help; m.$('[data-prev]').innerHTML = ''; m.$('[data-fname]').textContent = ''; m.$('[data-input]').value = ''; m.$('[data-go]').disabled = true; };
+  setKind(kind);
+  const ks = m.$('[data-kinds]'); if (ks) ks.onclick = (e) => { const b = e.target.closest('[data-k]'); if (!b) return; m.$$('[data-k]').forEach((x) => x.classList.toggle('on', x === b)); setKind(b.dataset.k); };
+  m.$('[data-cancel]').onclick = () => m.close();
+  m.$('[data-tpl]').onclick = () => downloadXLSX(K().file + '.xlsx', [{ name: 'Data', rows: [K().headers, ...K().sample], widths: K().widths }, { name: 'Petunjuk', header: false, rows: [['Petunjuk pengisian'], [''], ...K().tips.map((t) => [t])], widths: [90] }]);
+  m.$('[data-input]').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    m.$('[data-fname]').textContent = f.name; m.$('[data-prev]').innerHTML = '<div class="empty">Membaca file…</div>'; m.$('[data-go]').disabled = true;
+    try {
+      const { rows: raw, headers } = await parseImportFile(f, ALIASES[K().aliases]);
+      rows = raw.map((r) => mapRow(r, ALIASES[K().aliases])).filter((r) => K().need.every((n) => n.split('|').some((x) => r[x] !== undefined && r[x] !== '')));
+      rows.forEach((r) => { K().numeric.forEach((k) => { if (r[k] !== undefined) r[k] = numID(r[k]); }); if (r.phone && /^8\d{7,12}$/.test(r.phone)) r.phone = '0' + r.phone; if (r.barcode) r.barcode = String(r.barcode).trim(); });
+      if (!rows.length) {
+        m.$('[data-prev]').innerHTML = `<div class="panel panel-b" style="background:var(--danger-soft)"><b class="danger">Tidak ada baris yang bisa diimpor.</b><p class="small" style="margin:6px 0 0">Kolom yang terbaca di file: <b>${esc(headers.filter(Boolean).join(', ') || '(kosong)')}</b>.<br>Kolom yang dibutuhkan: <b>${esc(K().headers.join(', '))}</b>. Pastikan baris pertama berisi nama kolom seperti di template dan kolom wajib terisi.</p></div>`;
+        return;
+      }
+      const skipped = raw.length - rows.length;
+      m.$('[data-prev]').innerHTML = `<p class="bold" style="margin:0 0 8px">${rows.length} baris siap diimpor${skipped ? ` <span class="chip amber">${skipped} baris kosong/tidak lengkap dilewati</span>` : ''}</p>` + table(K().cols, rows.slice(0, 50), { maxH: '260px' }) + (rows.length > 50 ? `<p class="small muted">…dan ${rows.length - 50} baris lainnya.</p>` : '');
+      m.$('[data-go]').disabled = false;
+    } catch (ex) { m.$('[data-prev]').innerHTML = `<div class="panel panel-b" style="background:var(--danger-soft)"><b class="danger">File tidak bisa dibaca</b><p class="small" style="margin:6px 0 0">${esc(ex.message)}</p></div>`; }
+  };
+  m.$('[data-go]').onclick = async () => {
+    const b = m.$('[data-go]'); b.disabled = true; b.textContent = 'Mengimpor…';
+    try {
+      let tot = { created: 0, updated: 0, skipped: 0 };
+      for (let i = 0; i < rows.length; i += 500) { const r = await api(K().action, { rows: rows.slice(i, i + 500), mode: K().mode }); tot = { created: tot.created + (r.created || 0), updated: tot.updated + (r.updated || 0), skipped: tot.skipped + (r.skipped || 0) }; }
+      toast('Impor selesai', `${tot.created} baru, ${tot.updated} diperbarui${tot.skipped ? ', ' + tot.skipped + ' dilewati' : ''}`, 'ok'); m.close(); onDone && onDone();
+    } catch (ex) { toastErr(ex); b.disabled = false; b.textContent = 'Impor'; }
+  };
+}
+
 // ringkasan transaksi
 function sumTx(list) {
   return list.reduce((a, t) => { a.omzet += t.total; a.laba += t.profit; a.diskon += t.discount; a.items += t.item_count; a.komisi += t.commission; a.n++; return a; }, { omzet: 0, laba: 0, diskon: 0, items: 0, komisi: 0, n: 0 });
@@ -256,29 +321,7 @@ V.produk = async (page) => {
     };
     render();
   }
-  function importModal() {
-    const m = modal({ title: 'Impor barang dari Excel / CSV', size: 'wide', body: `
-      <div class="stack"><div class="seg" data-mode><button data-md="products" class="on">Data barang lengkap</button><button data-md="discount">Hanya harga khusus (diskon)</button></div>
-      <p class="small muted" data-help style="margin:0">Kolom: Nama Produk, Barcode / Kode, Kategori, Harga Beli, Harga Jual, Diskon / pcs, Stok, Komisi Sales / pcs. Barang dengan barcode/nama yang sudah ada akan diperbarui.</p>
-      <div class="row wrap"><button class="btn" data-tpl>${icon('download')}Unduh template</button><button class="btn primary" data-file>${icon('upload')}Pilih file (.xlsx / .csv)</button></div><div data-prev></div></div>`, foot: '<button class="btn primary hidden" data-go>Impor sekarang</button>' });
-    let mode = 'products', rows = [];
-    m.$$('[data-md]').forEach((b) => (b.onclick = () => { mode = b.dataset.md; m.$$('[data-md]').forEach((x) => x.classList.toggle('on', x === b)); m.$('[data-help]').textContent = mode === 'products' ? 'Kolom: Nama Produk, Barcode / Kode, Kategori, Harga Beli, Harga Jual, Diskon / pcs, Stok, Komisi Sales / pcs.' : 'Kolom: Barcode / Kode, Nama Produk, Diskon / pcs. Barang dicocokkan lewat barcode, lalu nama.'; rows = []; m.$('[data-prev]').innerHTML = ''; m.$('[data-go]').classList.add('hidden'); }));
-    m.$('[data-tpl]').onclick = () => mode === 'products'
-      ? downloadXLS('template_produk.xls', [{ a: 'Kemeja Kantor Putih', b: '8991234500011', c: 'Kemeja', d: 75000, e: 159000, f: 0, g: 12, h: 2000 }], [{ label: 'Nama Produk', key: 'a' }, { label: 'Barcode / Kode', key: 'b' }, { label: 'Kategori', key: 'c' }, { label: 'Harga Beli', key: 'd' }, { label: 'Harga Jual', key: 'e' }, { label: 'Diskon / pcs', key: 'f' }, { label: 'Stok', key: 'g' }, { label: 'Komisi Sales / pcs', key: 'h' }])
-      : downloadXLS('template_harga_khusus.xls', [{ a: '8991234500011', b: 'Kemeja Kantor Putih', c: 20000 }], [{ label: 'Barcode / Kode', key: 'a' }, { label: 'Nama Produk', key: 'b' }, { label: 'Diskon / pcs', key: 'c' }]);
-    m.$('[data-file]').onclick = async () => {
-      const f = await pickFile(); if (!f) return;
-      try {
-        rows = (await parseImportFile(f)).map((r) => mapRow(r, ALIASES[mode === 'products' ? 'product' : 'discount'])).filter((r) => r.name || r.barcode);
-        rows.forEach((r) => ['cost', 'price', 'discount', 'stock', 'commission'].forEach((k) => { if (r[k] !== undefined) r[k] = num(r[k]); }));
-        m.$('[data-prev]').innerHTML = `<p class="bold">${rows.length} baris siap diimpor dari ${esc(f.name)}</p>` + table(mode === 'products' ? [{ label: 'Nama', key: 'name' }, { label: 'Barcode', key: 'barcode' }, { label: 'Kategori', key: 'category' }, { label: 'Jual', num: true, get: (r) => rupiah(r.price) }, { label: 'Stok', num: true, key: 'stock' }] : [{ label: 'Barcode', key: 'barcode' }, { label: 'Nama', key: 'name' }, { label: 'Diskon', num: true, get: (r) => rupiah(r.discount) }], rows.slice(0, 30), { maxH: '260px' });
-        m.$('[data-go]').classList.toggle('hidden', !rows.length);
-      } catch (e) { toastErr(e); }
-    };
-    m.$('[data-go]').onclick = async () => {
-      try { const r = await api('product_import', { rows, mode }); toast('Impor selesai', `${r.created} baru, ${r.updated} diperbarui, ${r.skipped} dilewati`, 'ok'); m.close(); drawList(); } catch (e) { toastErr(e); }
-    };
-  }
+  function importModal() { importDialog(['products', 'discount'], drawList); }
   function labelModal(list) {
     const m = modal({ title: 'Cetak label barcode', size: 'wide', body: `<p class="muted" style="margin-top:0">${list.length} barang. Atur jumlah label per barang.</p>${table([{ label: 'Barang', key: 'name' }, { label: 'Barcode', get: (p) => p.barcode || '— (tanpa barcode)' }, { label: 'Jumlah label', html: (p) => `<input class="input" style="width:80px" data-lq="${p.id}" value="${Math.max(1, p.stock)}" inputmode="numeric">` }], list, { maxH: '300px' })}`, foot: `<button class="btn" data-print>${icon('printer')}Cetak ke printer biasa / PDF</button>${Printer.supported ? '<button class="btn primary" data-bt>Printer label Bluetooth</button>' : ''}` });
     const expand = () => list.flatMap((p) => Array(Math.min(500, num(m.$(`[data-lq="${p.id}"]`).value))).fill(p));
@@ -403,11 +446,7 @@ V.member = async (page) => {
     $('[data-new]', body).onclick = () => crudModal({ title: 'Member baru', fields: mform(), onSave: async (v) => { await db.create('members', v); toast('Member ditambahkan', v.name, 'ok'); drawList(); } });
     if (admin) {
       $('[data-exp]', body).onclick = () => downloadXLS('member_' + ymd() + '.xls', list, [{ label: 'Nama', key: 'name' }, { label: 'Telepon', key: 'phone' }, { label: 'Email', key: 'email' }, { label: 'Poin', key: 'points' }, { label: 'Voucher', key: 'voucher_amount' }, { label: 'Terdaftar', key: 'created' }]);
-      $('[data-imp]', body).onclick = async () => {
-        if (!(await confirmBox('Impor member', 'Gunakan file Excel/CSV dengan kolom: Nama, Telepon, Email, Poin. Member dengan nomor HP yang sama akan diperbarui.', 'Pilih file', false))) return;
-        const f = await pickFile(); if (!f) return;
-        try { const rows = (await parseImportFile(f)).map((r) => mapRow(r, ALIASES.member)).filter((r) => r.name); const r = await api('member_import', { rows }); toast('Impor selesai', `${r.created} baru, ${r.updated} diperbarui`, 'ok'); drawList(); } catch (e) { toastErr(e); }
-      };
+      $('[data-imp]', body).onclick = () => importDialog(['members'], drawList);
       $('[data-tbl]', body).onclick = async (e) => {
         const ed = e.target.closest('[data-edit]'), dl = e.target.closest('[data-del]');
         const m = list.find((x) => x.id === +(ed || dl)?.dataset[ed ? 'edit' : 'del']); if (!m) return;

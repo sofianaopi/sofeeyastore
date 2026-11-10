@@ -1,0 +1,4 @@
+# Jangan unggah password database ke GitHub
+api/config.local.php
+*.zip
+.DS_Store

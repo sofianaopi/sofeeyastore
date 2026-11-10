@@ -6,6 +6,8 @@
 declare(strict_types=1);
 
 $CONFIG = require __DIR__ . '/config.php';
+// config.local.php (dibuat langsung di server, tidak ikut GitHub) menimpa config.php
+if (is_file(__DIR__ . '/config.local.php')) { $CONFIG = array_merge($CONFIG, (array)require __DIR__ . '/config.local.php'); }
 if (getenv('POS_TEST_DSN')) { $CONFIG['dsn'] = getenv('POS_TEST_DSN'); } // hanya untuk uji lokal
 date_default_timezone_set($CONFIG['timezone'] ?? 'Asia/Makassar');
 ini_set('display_errors', !empty($CONFIG['debug']) ? '1' : '0');

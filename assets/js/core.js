@@ -186,30 +186,178 @@ function downloadBlob(filename, content, mime) {
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 function downloadCSV(filename, rows, cols) { downloadBlob(filename, '\ufeff' + toCSV(rows, cols), 'text/csv;charset=utf-8'); }
-// Excel (.xls) dari tabel HTML — langsung terbuka di Microsoft Excel / WPS / Google Sheets
-function downloadXLS(filename, rows, cols, title = '') {
-  const th = cols.map((c) => `<th style="background:#035AA6;color:#fff">${esc(c.label)}</th>`).join('');
-  const tb = rows.map((r) => '<tr>' + cols.map((c) => { const v = typeof c.get === 'function' ? c.get(r) : r[c.key]; return `<td${typeof v === 'number' ? ' style="mso-number-format:\'0\'"' : ' style="mso-number-format:\'\\@\'"'}>${esc(v)}</td>`; }).join('') + '</tr>').join('');
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>${title ? `<h3>${esc(title)}</h3>` : ''}<table border="1">${'<tr>' + th + '</tr>'}${tb}</table></body></html>`;
-  downloadBlob(filename, '\ufeff' + html, 'application/vnd.ms-excel');
-}
-function parseCSV(text) {
-  text = text.replace(/^\ufeff/, '').replace(/\r/g, '');
-  const lines = text.split('\n').filter((l) => l.trim() !== '');
-  if (lines.length < 2) return [];
-  const sep = (lines[0].match(/;/g) || []).length > (lines[0].match(/,/g) || []).length ? ';' : ',';
-  const parse = (line) => { const out = []; let cur = '', q = false; for (let i = 0; i < line.length; i++) { const ch = line[i]; if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; } else if (ch === '"') q = true; else if (ch === sep) { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out; };
-  const head = parse(lines[0]).map((h) => h.trim());
-  return lines.slice(1).map((l) => { const c = parse(l); const o = {}; head.forEach((h, i) => { o[h] = (c[i] || '').trim(); }); return o; });
-}
-function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Gagal memuat pembaca Excel. Simpan file sebagai CSV lalu coba lagi.')); document.head.appendChild(s); }); }
-async function parseImportFile(file) {
-  if (/\.xlsx?$/i.test(file.name)) {
-    if (!window.XLSX) await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
-    const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array' });
-    return window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '', raw: false });
+// ---------------------------------------------------------------- Excel .xlsx asli (tanpa library luar)
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(b) { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+function zipStore(files) { // files: [{name, data:Uint8Array}] → Blob (tanpa kompresi)
+  const enc = new TextEncoder(); const parts = []; const central = []; let off = 0;
+  for (const f of files) {
+    const nm = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length;
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(8, 0, true); h.setUint32(14, crc, true); h.setUint32(18, sz, true); h.setUint32(22, sz, true); h.setUint16(26, nm.length, true);
+    parts.push(new Uint8Array(h.buffer), nm, f.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint32(16, crc, true); c.setUint32(20, sz, true); c.setUint32(24, sz, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+    central.push(new Uint8Array(c.buffer), nm);
+    off += 30 + nm.length + sz;
   }
-  return parseCSV(await file.text());
+  const cdSize = central.reduce((a, x) => a + x.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true); e.setUint32(12, cdSize, true); e.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(e.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+const xmlEsc = (v) => String(v ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+function colName(i) { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+// sheets: [{name, rows: [[...]], widths:[..], header:true}]  → unduh .xlsx
+function downloadXLSX(filename, sheets) {
+  const enc = new TextEncoder();
+  const sheetXml = (sh) => {
+    const rows = sh.rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => {
+      const ref = colName(ci) + (ri + 1), st = ri === 0 && sh.header !== false ? ' s="1"' : '';
+      if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"${st}><v>${v}</v></c>`;
+      if (v === null || v === undefined || v === '') return st ? `<c r="${ref}"${st}/>` : '';
+      return `<c r="${ref}" t="inlineStr"${st}><is><t xml:space="preserve">${xmlEsc(v)}</t></is></c>`;
+    }).join('')}</row>`).join('');
+    const cols = (sh.widths || []).length ? `<cols>${sh.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
+    const pane = sh.header !== false ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>' : '';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${pane}${cols}<sheetData>${rows}</sheetData></worksheet>`;
+  };
+  const files = [
+    ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+    ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sh, i) => `<sheet name="${xmlEsc(String(sh.name).replace(/[\\\/?*\[\]:]/g, '').slice(0, 31))}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+    ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ['xl/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF035AA6"/></patternFill></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf fontId="0" fillId="0" borderId="0"/><xf fontId="1" fillId="2" borderId="0" applyFont="1" applyFill="1"/></cellXfs></styleSheet>`],
+    ...sheets.map((sh, i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sh)]),
+  ].map(([name, txt]) => ({ name, data: enc.encode(txt) }));
+  downloadBlob(filename.replace(/\.xlsx?$/i, '') + '.xlsx', zipStore(files));
+}
+// Ekspor tabel → .xlsx (nama fungsi lama dipertahankan)
+function downloadXLS(filename, rows, cols) {
+  const aoa = [cols.map((c) => c.label), ...rows.map((r) => cols.map((c) => { const v = typeof c.get === 'function' ? c.get(r) : r[c.key]; return v == null ? '' : v; }))];
+  downloadXLSX(filename, [{ name: 'Data', rows: aoa, widths: cols.map((c) => Math.min(45, Math.max(10, String(c.label).length + 4))) }]);
+}
+// ---------------------------------------------------------------- membaca file impor
+async function unzipEntries(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), dec = new TextDecoder();
+  let eocd = -1; for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('File Excel rusak atau bukan .xlsx.');
+  const n = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true); const out = {};
+  for (let k = 0; k < n; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), lo = dv.getUint32(p + 42, true);
+    const name = dec.decode(u8.subarray(p + 46, p + 46 + nl));
+    const start = lo + 30 + dv.getUint16(lo + 26, true) + dv.getUint16(lo + 28, true);
+    out[name] = { method, data: u8.subarray(start, start + csize) };
+    p += 46 + nl + el + cl;
+  }
+  return {
+    has: (nm) => !!out[nm],
+    names: () => Object.keys(out),
+    async text(nm) {
+      const e = out[nm]; if (!e) return null;
+      if (e.method === 0) return dec.decode(e.data);
+      if (typeof DecompressionStream === 'undefined') throw new Error('Browser terlalu lama untuk membaca Excel. Perbarui Chrome, atau simpan file sebagai CSV.');
+      const ab = await new Response(new Blob([e.data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer();
+      return dec.decode(ab);
+    },
+  };
+}
+function cellIndex(ref) { const m = /^([A-Z]+)/.exec(ref || ''); if (!m) return -1; let n = 0; for (const ch of m[1]) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; }
+function cleanNumStr(v) { // 8.99123E+12 → 8991230000000 (barcode yang terlanjur jadi angka)
+  if (/^-?\d+(\.\d+)?E[+-]?\d+$/i.test(v)) { const n = Number(v); if (Number.isFinite(n) && Number.isInteger(n)) return BigInt(Math.round(n)).toString(); }
+  if (/^-?\d+\.\d{6,}$/.test(v)) return String(Math.round(Number(v) * 100) / 100);
+  return v;
+}
+async function readXLSX(buf) {
+  const z = await unzipEntries(buf);
+  const P = (t) => new DOMParser().parseFromString(t, 'application/xml');
+  const tags = (node, name) => Array.from(node.getElementsByTagName('*')).filter((e) => e.localName === name);
+  let sheetPath = 'xl/worksheets/sheet1.xml';
+  try {
+    const wb = P(await z.text('xl/workbook.xml')), rels = P(await z.text('xl/_rels/workbook.xml.rels'));
+    const first = tags(wb, 'sheet')[0];
+    const rid = first && (first.getAttribute('r:id') || first.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id'));
+    const rel = tags(rels, 'Relationship').find((r) => r.getAttribute('Id') === rid);
+    if (rel) { let t = rel.getAttribute('Target').replace(/^\//, ''); if (!t.startsWith('xl/')) t = 'xl/' + t; if (z.has(t)) sheetPath = t; }
+  } catch (e) { /* pakai sheet1 */ }
+  if (!z.has(sheetPath)) sheetPath = z.names().find((n) => /^xl\/worksheets\/[^/]+\.xml$/.test(n));
+  if (!sheetPath) throw new Error('Sheet tidak ditemukan di file Excel.');
+  const shared = [];
+  const sst = await z.text('xl/sharedStrings.xml');
+  if (sst) tags(P(sst), 'si').forEach((si) => shared.push(tags(si, 't').map((t) => t.textContent).join('')));
+  const doc = P(await z.text(sheetPath)); const aoa = [];
+  tags(doc, 'row').forEach((row, ri) => {
+    const rIdx = (Number(row.getAttribute('r')) || ri + 1) - 1; const arr = []; let ci = 0;
+    tags(row, 'c').forEach((c) => {
+      const idx = cellIndex(c.getAttribute('r')); if (idx >= 0) ci = idx;
+      const t = c.getAttribute('t'); const vEl = tags(c, 'v')[0]; let v = '';
+      if (t === 's') v = shared[Number(vEl?.textContent)] ?? '';
+      else if (t === 'inlineStr') v = tags(c, 't').map((x) => x.textContent).join('');
+      else if (t === 'b') v = vEl?.textContent === '1' ? 'TRUE' : 'FALSE';
+      else v = cleanNumStr(vEl?.textContent ?? '');
+      arr[ci++] = v;
+    });
+    aoa[rIdx] = Array.from(arr, (x) => (x == null ? '' : String(x)));
+  });
+  return Array.from(aoa, (r) => r || []);
+}
+function readHTMLTable(text) {
+  const t = new DOMParser().parseFromString(text, 'text/html').querySelector('table');
+  return t ? Array.from(t.rows).map((r) => Array.from(r.cells).map((c) => c.textContent.trim())) : [];
+}
+function csvToAoa(text) {
+  text = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+  const first = text.split('\n')[0] || '';
+  const sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : (first.includes('\t') && !first.includes(',') ? '\t' : ',');
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === '"') q = true; else if (ch === sep) { row.push(cur); cur = ''; } else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; } else cur += ch;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.map((r) => r.map((c) => c.trim()));
+}
+function parseCSV(text) { return aoaToObjects(csvToAoa(text)); }
+// cari baris judul kolom (baris pertama yang cocok dengan nama kolom yang dikenal)
+function aoaToObjects(aoa, aliases) {
+  const known = new Set(Object.values(aliases || {}).flat());
+  const nonEmpty = (r) => (r || []).some((c) => String(c).trim() !== '');
+  let h = aoa.findIndex(nonEmpty); if (h < 0) return { rows: [], headers: [] };
+  if (aliases) { for (let i = 0; i < Math.min(aoa.length, 15); i++) { const hits = (aoa[i] || []).filter((c) => known.has(normHeader(c))).length; if (hits >= 1) { h = i; break; } } }
+  const headers = (aoa[h] || []).map((x) => String(x).trim());
+  const rows = aoa.slice(h + 1).filter(nonEmpty).map((r) => { const o = {}; headers.forEach((k, i) => { if (k) o[k] = String(r[i] ?? '').trim(); }); return o; });
+  return { rows, headers };
+}
+function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('Format .xls lama tidak bisa dibaca. Buka file di Excel lalu "Simpan sebagai" .xlsx atau CSV.')); document.head.appendChild(s); }); }
+// → { rows:[{Header:value}], headers:[...] }
+async function parseImportFile(file, aliases) {
+  if (!file) throw new Error('Tidak ada file dipilih.');
+  if (file.size > 15 * 1024 * 1024) throw new Error('File terlalu besar (maks. 15 MB).');
+  const buf = await file.arrayBuffer(); const head = new Uint8Array(buf.slice(0, 8));
+  const isZip = head[0] === 0x50 && head[1] === 0x4b;
+  const isOle = head[0] === 0xd0 && head[1] === 0xcf && head[2] === 0x11 && head[3] === 0xe0;
+  let aoa;
+  if (isZip) aoa = await readXLSX(buf);
+  else if (isOle) {
+    if (!window.XLSX) await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    const wb = window.XLSX.read(buf, { type: 'array' });
+    aoa = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false });
+  } else {
+    let text = new TextDecoder('utf-8').decode(buf);
+    if (text.includes('�')) text = new TextDecoder('windows-1252').decode(buf);
+    aoa = /<table[\s>]/i.test(text) ? readHTMLTable(text) : csvToAoa(text);
+  }
+  return aoaToObjects(aoa, aliases);
+}
+// angka gaya Indonesia: "Rp 75.000" → 75000, "1.250.000" → 1250000, "12,5" → 12.5
+function numID(v) {
+  let s = String(v ?? '').replace(/rp|idr|\s/gi, '').trim(); if (!s) return 0;
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, '');
+  else s = s.replace(',', '.');
+  const n = Number(s.replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0;
 }
 function normHeader(h) { return String(h || '').trim().toLowerCase().replace(/[\/]+/g, ' ').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').replace(/^_+|_+$/g, ''); }
 function mapRow(raw, aliases) {
@@ -222,8 +370,13 @@ const ALIASES = {
   discount: { barcode: ['barcode', 'barcode_kode', 'kode', 'kode_barcode'], name: ['name', 'nama', 'nama_produk', 'produk'], discount: ['discount', 'diskon', 'diskon_pcs', 'potongan', 'potongan_harga', 'harga_khusus'] },
   member: { name: ['name', 'nama'], phone: ['phone', 'telepon', 'hp', 'no_hp', 'no_telepon', 'wa'], email: ['email'], points: ['points', 'poin'] },
 };
-function pickFile(accept = '.csv,.xlsx,.xls') {
-  return new Promise((resolve) => { const i = document.createElement('input'); i.type = 'file'; i.accept = accept; i.onchange = () => resolve(i.files[0] || null); i.click(); });
+function pickFile() {
+  return new Promise((resolve) => {
+    const i = document.createElement('input'); i.type = 'file'; i.style.cssText = 'position:fixed;left:-9999px;opacity:0';
+    document.body.appendChild(i);
+    i.onchange = () => { resolve(i.files[0] || null); i.remove(); };
+    i.click();
+  });
 }
 
 // ---------------------------------------------------------------- printer Bluetooth (ESC/POS)
