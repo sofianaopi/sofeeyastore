@@ -54,7 +54,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 2) return;
+    if ($v >= 3) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -65,7 +65,14 @@ function migrate(PDO $pdo): void {
         note VARCHAR(500) NOT NULL DEFAULT '', cashier VARCHAR(200) NOT NULL DEFAULT '', created DATETIME NULL, updated DATETIME NULL)$tail");
     $presets = json_encode([['label' => 'Ongkir Maxim', 'amount' => 15000], ['label' => 'Ongkir Grab', 'amount' => 20000], ['label' => 'Ongkir J&T', 'amount' => 12000], ['label' => 'Bungkus kado', 'amount' => 5000]]);
     $now = date('Y-m-d H:i:s');
-    foreach (['fee_presets' => $presets, 'schema_version' => '2'] as $k => $val) {
+    // v3: kolom tambahan pengiriman
+    $cols = ['provider' => "VARCHAR(20) NOT NULL DEFAULT 'manual'", 'biteship_order_id' => "VARCHAR(60) NOT NULL DEFAULT ''", 'courier_code' => "VARCHAR(30) NOT NULL DEFAULT ''",
+        'courier_service' => "VARCHAR(40) NOT NULL DEFAULT ''", 'tracking_id' => "VARCHAR(80) NOT NULL DEFAULT ''", 'tracking_link' => "VARCHAR(500) NOT NULL DEFAULT ''",
+        'bs_status' => "VARCHAR(40) NOT NULL DEFAULT ''", 'driver' => "VARCHAR(200) NOT NULL DEFAULT ''", 'area_id' => "VARCHAR(80) NOT NULL DEFAULT ''",
+        'area_name' => "VARCHAR(200) NOT NULL DEFAULT ''", 'postal_code' => "VARCHAR(10) NOT NULL DEFAULT ''", 'lat' => 'DOUBLE NULL', 'lng' => 'DOUBLE NULL',
+        'weight' => 'INT NOT NULL DEFAULT 0', 'cost' => 'DECIMAL(14,2) NOT NULL DEFAULT 0'];
+    foreach ($cols as $c => $def) { try { $pdo->exec("ALTER TABLE shipments ADD COLUMN $c $def"); } catch (Throwable $e) { /* sudah ada */ } }
+    foreach (['fee_presets' => $presets, 'schema_version' => '3'] as $k => $val) {
         $st = $pdo->prepare('SELECT id FROM settings WHERE `key` = ?'); $st->execute([$k]);
         if ($st->fetch()) { $u = $pdo->prepare('UPDATE settings SET value = ?, updated = ? WHERE `key` = ?'); if ($k === 'schema_version') $u->execute([$val, $now, $k]); }
         else { $pdo->prepare('INSERT INTO settings (`key`, value, created, updated) VALUES (?,?,?,?)')->execute([$k, $val, $now, $now]); }
@@ -148,7 +155,8 @@ $TABLES = [
         'search' => ['product_name', 'barcode', 'invoice', 'note'], 'read' => 'admin', 'write' => 'none', 'delete' => 'admin', 'order' => '-created'],
     'attendance' => ['fields' => ['user_id' => 'i', 'user_name' => 's', 'type' => 's', 'lat' => 'n', 'lng' => 'n', 'ip' => 's', 'is_late' => 'b', 'late_minutes' => 'i'],
         'search' => ['user_name'], 'read' => 'admin', 'write' => 'none', 'delete' => 'admin', 'order' => '-created'],
-    'shipments' => ['fields' => ['transaction_id' => 'i', 'invoice' => 's', 'courier' => 's', 'recipient' => 's', 'phone' => 's', 'address' => 's', 'fee' => 'n', 'resi' => 's', 'status' => 's', 'note' => 's', 'cashier' => 's'],
+    'shipments' => ['fields' => ['transaction_id' => 'i', 'invoice' => 's', 'courier' => 's', 'recipient' => 's', 'phone' => 's', 'address' => 's', 'fee' => 'n', 'resi' => 's', 'status' => 's', 'note' => 's', 'cashier' => 's',
+        'provider' => 's', 'biteship_order_id' => 's', 'courier_code' => 's', 'courier_service' => 's', 'tracking_id' => 's', 'tracking_link' => 's', 'bs_status' => 's', 'driver' => 's', 'area_id' => 's', 'area_name' => 's', 'postal_code' => 's', 'lat' => 'n', 'lng' => 'n', 'weight' => 'i', 'cost' => 'n'],
         'updatable' => ['courier', 'recipient', 'phone', 'address', 'fee', 'resi', 'status', 'note'],
         'search' => ['invoice', 'recipient', 'phone', 'resi', 'courier'], 'read' => 'auth', 'write' => 'auth', 'create' => 'none', 'delete' => 'admin', 'order' => '-created'],
     'stock_checks' => ['fields' => ['petugas_id' => 'i', 'petugas_name' => 's', 'items' => 'j', 'status' => 's', 'note' => 's', 'reviewed_by' => 'i', 'reviewed_name' => 's'],
@@ -317,13 +325,13 @@ function validate_row(string $t, array &$vals, ?int $id): void {
         if (isset($vals['type']) && !in_array($vals['type'], ['percent', 'fixed', 'price', 'package', 'bogo'], true)) fail('Tipe promo tidak valid.');
         if (isset($vals['code'])) $vals['code'] = strtoupper($vals['code']);
     }
-    if ($t === 'shipments' && isset($vals['status']) && !in_array($vals['status'], ['baru', 'dikirim', 'selesai', 'batal'], true)) fail('Status pengiriman tidak valid.');
+    if ($t === 'shipments' && isset($vals['status']) && !in_array($vals['status'], ['baru', 'dipesan', 'dikirim', 'selesai', 'batal'], true)) fail('Status pengiriman tidak valid.');
     if ($t === 'links' && isset($vals['url']) && !preg_match('~^https?://~i', $vals['url'])) $vals['url'] = 'https://' . $vals['url'];
 }
 
 // ---------------------------------------------------------------- business actions
 function public_settings(): array {
-    $keys = ['store_name', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'fee_presets'];
+    $keys = ['store_name', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'fee_presets', 'qris_payload'];
     $out = [];
     foreach (all('SELECT `key`, value FROM settings') as $r) if (in_array($r['key'], $keys, true)) $out[$r['key']] = $r['value'];
     $out['store_name'] = $out['store_name'] ?? 'Sofeeya Store';
@@ -417,7 +425,10 @@ function checkout(array $in): array {
             insert_row('shipments', ['transaction_id' => $id, 'invoice' => $invoice, 'courier' => mb_substr(trim((string)$sh['courier']), 0, 60),
                 'recipient' => mb_substr(trim((string)($sh['recipient'] ?? '')), 0, 200), 'phone' => mb_substr(trim((string)($sh['phone'] ?? '')), 0, 50),
                 'address' => mb_substr(trim((string)($sh['address'] ?? '')), 0, 2000), 'fee' => max(0, (float)($sh['fee'] ?? 0)),
-                'resi' => mb_substr(trim((string)($sh['resi'] ?? '')), 0, 100), 'status' => 'baru', 'note' => mb_substr(trim((string)($sh['note'] ?? '')), 0, 500), 'cashier' => $u['name']]);
+                'resi' => mb_substr(trim((string)($sh['resi'] ?? '')), 0, 100), 'status' => 'baru', 'note' => mb_substr(trim((string)($sh['note'] ?? '')), 0, 500), 'cashier' => $u['name'],
+                'provider' => 'manual', 'courier_code' => mb_substr((string)($sh['courier_code'] ?? ''), 0, 30), 'courier_service' => mb_substr((string)($sh['courier_service'] ?? ''), 0, 40),
+                'area_id' => mb_substr((string)($sh['area_id'] ?? ''), 0, 80), 'area_name' => mb_substr((string)($sh['area_name'] ?? ''), 0, 200), 'postal_code' => mb_substr((string)($sh['postal_code'] ?? ''), 0, 10),
+                'lat' => is_numeric($sh['lat'] ?? null) ? (float)$sh['lat'] : null, 'lng' => is_numeric($sh['lng'] ?? null) ? (float)$sh['lng'] : null, 'weight' => (int)($sh['weight'] ?? 0), 'cost' => (float)($sh['cost'] ?? 0)]);
         }
         foreach ($items as $it) {
             $p = one('SELECT * FROM products WHERE id = ?', [$it['id']]);
@@ -714,10 +725,16 @@ try {
             $out = ['ok' => is_admin() || hash_equals((string)setting('supervisor_pin', '1234'), (string)($in['pin'] ?? ''))];
             break;
         }
-        case 'settings_all': need_admin(); $out = []; foreach (all('SELECT `key`, value FROM settings') as $r) $out[$r['key']] = $r['value']; $out['_my_ip'] = client_ip(); break;
+        case 'settings_all': {
+            need_admin(); $out = []; foreach (all('SELECT `key`, value FROM settings') as $r) $out[$r['key']] = $r['value']; $out['_my_ip'] = client_ip();
+            unset($out['biteship_api_key']);
+            break;
+        }
         case 'settings_save': {
             need_admin();
-            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets'];
+            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload'];
+            if (isset($in['values']['qris_payload'])) { $qp = trim((string)$in['values']['qris_payload']); if ($qp !== '' && (strpos($qp, '000201') !== 0 || strlen($qp) > 1000)) fail('Kode QRIS tidak valid.'); $in['values']['qris_payload'] = $qp; }
+
             foreach ((array)($in['values'] ?? []) as $k => $v) if (in_array($k, $allowed, true)) set_setting($k, $v);
             $out = public_settings(); break;
         }
