@@ -13,6 +13,26 @@ Versi ini terdiri dari HTML + JavaScript biasa (tanpa proses build), API PHP, da
 | `api/index.php` | Server API, terhubung ke database |
 | `api/config.php` | **Isi data database Anda di sini** |
 | `database.sql` | Struktur tabel + akun awal, untuk diimpor ke MySQL |
+| `uploads/produk/` | Tempat foto produk. Harus bisa ditulis server (izin **755**). |
+
+## Memperbarui dari versi sebelumnya
+
+Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php` yang berisi password database. Jangan impor ulang `database.sql` karena data akan hilang. Kolom-kolom baru ditambahkan otomatis saat aplikasi dibuka pertama kali.
+
+## Fitur toko fashion (versi ini)
+
+| Fitur | Di mana | Catatan |
+|---|---|---|
+| **Varian warna × ukuran** | Produk & stok → *Barang baru* | Satu model punya banyak varian. Setiap varian punya stok & barcode sendiri. Di kasir tampil satu kartu, lalu pilih warna & ukuran. |
+| **Matriks stok** | Produk & stok → tombol *Stok* | Isi stok semua warna/ukuran dalam satu tabel. Cocok saat kiriman konveksi datang atau saat stok opname. |
+| **Foto produk** | Produk & stok → klik gambar kecil di kiri | Foto dikecilkan otomatis. Tampil di kasir agar pegawai cepat menemukan barang. |
+| **Tukar size / retur** | Kasir → *Tukar / retur*, atau scan barcode invoice di struk | Pilih barang yang dikembalikan, lalu ambil pengganti. Selisih dibayar atau dikembalikan otomatis. Stok kembali otomatis. Batas hari diatur di Pengaturan. |
+| **Saluran penjualan** | Kasir → layar Pembayaran | Toko, WhatsApp, Instagram, Shopee, TikTok Shop (bisa diubah di Pengaturan). Omzet per saluran tampil di Dashboard. |
+| **Ukuran & warna terlaris** | Dashboard | Panduan restok: ukuran/warna mana yang paling cepat habis. |
+| **Barang lambat laku** | Dashboard | Barang yang masih ada stok tetapi tidak terjual 45 hari, beserta modal yang tertahan. Cocok dijadikan promo cuci gudang. |
+| **Impor varian dari Excel** | Produk & stok → *Impor* | Template baru punya kolom Model, Warna, Ukuran — satu baris per varian. |
+
+Menu **Info kasir** dan **Rumah tautan** dihapus karena tidak dipakai dalam alur kerja toko.
 
 ## Langkah 0 — PENTING jika domain Anda dipakai website Horizons
 
@@ -106,6 +126,7 @@ Buka domain di **Chrome Android** → menu ⋮ → **Tambahkan ke layar utama**.
 | "Respons server tidak valid" | Pastikan folder `api/` ikut terunggah dan versi PHP ≥ 7.4 (hPanel → Advanced → PHP Configuration). |
 | Login berhasil lalu langsung keluar lagi | Akses lewat satu alamat saja (pilih dengan atau tanpa `www`) dan gunakan HTTPS. |
 | Absen ditolak "bukan jaringan toko" | IP WiFi toko bisa berubah bila modem restart. Perbarui lewat *Pengaturan toko → Pakai IP ini*. |
+| Upload foto gagal "Folder uploads/produk tidak dapat dibuat" | Di File Manager buat folder `uploads/produk`, lalu klik kanan → Permissions → **755**. |
 | Ingin melihat pesan error detail | Sementara ubah `'debug' => true` di `api/config.php`, lalu kembalikan ke `false`. |
 
 ## Cadangan data (backup)

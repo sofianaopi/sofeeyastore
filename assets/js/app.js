@@ -16,10 +16,8 @@ const App = {
     { id: 'member', label: 'Member', icon: 'member', can: () => true },
     { id: 'sales', label: 'Sales & komisi', icon: 'sales', can: (u) => u.role === 'admin' },
     { sep: true },
-    { id: 'info', label: 'Info kasir', icon: 'info', can: (u) => u.role === 'admin' },
     { id: 'pengaturan', label: 'Pengaturan toko', icon: 'setting', can: (u) => u.role === 'admin' },
     { id: 'pengguna', label: 'Pengguna', icon: 'users', can: (u) => u.role === 'admin' },
-    { id: 'tautan', label: 'Rumah tautan', icon: 'link', can: () => true },
     { id: 'printer', label: 'Printer', icon: 'printer', can: () => true },
     { id: 'akun', label: 'Akun saya', icon: 'akun', can: () => true },
   ],
@@ -225,8 +223,8 @@ const App = {
 async function Kasir(page) {
   const S = App.settings, isAdmin = App.isAdmin();
   const st = {
-    products: [], promos: [], members: [], sales: [], infos: [], rewards: [],
-    cart: [], cat: 'Semua', q: '', memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false,
+    products: [], promos: [], members: [], sales: [], rewards: [],
+    cart: [], cat: 'Semua', q: '', memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null,
   };
   page.innerHTML = `
   <div class="pos">
@@ -241,7 +239,6 @@ async function Kasir(page) {
       <div class="cats" data-cats></div>
       <div class="promostrip" data-promos></div>
       <div class="products" data-grid><div class="empty">Memuat barang…</div></div>
-      <div class="marquee" data-marquee></div>
       <div class="cartfab"><button class="btn gold" data-opencart><span>${icon('cart')} <span data-fabcount>0 barang</span></span><b data-fabtotal>Rp0</b></button></div>
     </section>
     <aside class="cartcol">
@@ -253,6 +250,7 @@ async function Kasir(page) {
             <button class="btn sm" data-voucher>${icon('promo')}Kode promo</button>
             <button class="btn sm" data-fee>${icon('wallet')}Biaya</button>
             <button class="btn sm" data-ship>${icon('truck')}<span data-shiplabel>Kirim</span></button>
+            <button class="btn sm" data-retur>${icon('rotate')}<span data-returlabel>Tukar / retur</span></button>
           </div>
         </div>
         <div data-upsell></div>
@@ -273,11 +271,11 @@ async function Kasir(page) {
 
   // ---------- muat data
   try {
-    const [products, promos, members, sales, infos, rewards] = await Promise.all([
+    const [products, promos, members, sales, rewards] = await Promise.all([
       db.list('products'), db.list('promos', { where: { active: 1 } }), db.list('members'),
-      db.list('sales', { where: { active: 1 } }), db.list('store_info', { where: { active: 1 } }), db.list('point_rewards', { where: { active: 1 } }),
+      db.list('sales', { where: { active: 1 } }), db.list('point_rewards', { where: { active: 1 } }),
     ]);
-    Object.assign(st, { products, promos, members, sales, infos, rewards });
+    Object.assign(st, { products, promos, members, sales, rewards });
   } catch (e) { toastErr(e); }
 
   const activePromos = () => st.promos.filter(Promo.activeToday);
@@ -301,10 +299,11 @@ async function Kasir(page) {
     const discount = Math.min(subtotal, pc.total + memberDisc + rewardDisc + prodDisc);
     const shipFee = st.shipping ? st.shipping.fee || 0 : 0;
     const fee = st.fees.reduce((s, f) => s + f.amount, 0) + shipFee;
-    const total = Math.max(0, subtotal - discount + fee);
+    const retAmount = st.retur ? st.retur.items.reduce((s, i) => s + i.price * i.qty, 0) : 0;
+    const total = st.retur ? subtotal - discount + fee - retAmount : Math.max(0, subtotal - discount + fee);
     const count = cart.reduce((s, c) => s + c.qty, 0);
     const promoNames = eff.filter((p) => pc.perPromo[p.id]).map((p) => p.name);
-    return { subtotal, pc, memberDisc, voucher, blocked, rewardDisc, prodDisc, discount, fee, shipFee, total, count, promoNames, eff, m };
+    return { subtotal, pc, memberDisc, voucher, blocked, rewardDisc, prodDisc, discount, fee, shipFee, total, count, promoNames, eff, m, retAmount };
   }
 
   // ---------- render
@@ -317,28 +316,84 @@ async function Kasir(page) {
     const list = activePromos();
     el('[data-promos]').innerHTML = list.map((p) => `<button class="pcard ${r.pc.perPromo[p.id] ? 'on' : ''}" data-promo="${p.id}" title="${esc(p.name)}"><span class="pc-top"><b>${esc(p.name)}</b>${r.pc.perPromo[p.id] ? icon('check', 'pc-ok') : ''}</span><span class="pc-val">${esc(Promo.describe(p))}</span>${p.code ? `<span class="pc-code">${esc(p.code)}</span>` : '<span class="pc-auto">Otomatis</span>'}</button>`).join('');
     el('[data-promos]').classList.toggle('hidden', !list.length);
-    const segs = [...st.infos.map((i) => i.title + (i.content ? ' — ' + i.content : '')), ...list.map((p) => `Promo ${p.name}: ${Promo.describe(p)}${p.code ? ' (kode ' + p.code + ')' : ''}`)];
-    const text = segs.length ? segs.join('      •      ') : 'Selamat bekerja! Belum ada info atau promo aktif.';
-    el('[data-marquee]').innerHTML = `<span class="tag">Info</span><div style="overflow:hidden;flex:1"><div class="trk"><span>${esc(text)}</span><span aria-hidden="true">${esc(text)}</span></div></div>`;
   }
   const alive = () => !!el('[data-grid]') && App.view === 'kasir';
+  // barang dikelompokkan per model (varian warna/ukuran jadi satu kartu)
+  function groups() {
+    const map = new Map();
+    st.products.forEach((p) => {
+      const k = p.model ? 'm:' + p.model : 'p:' + p.id;
+      let g = map.get(k);
+      if (!g) { g = { key: k, model: p.model || '', name: p.model || p.name, category: p.category, image: '', items: [] }; map.set(k, g); }
+      g.items.push(p); if (!g.image && p.image) g.image = p.image;
+    });
+    return [...map.values()];
+  }
+  const effPrice = (p) => p.price - (p.discount || 0);
   function renderGrid() {
     if (!alive()) return;
     const q = st.q.trim().toLowerCase();
     const act = activePromos();
-    const list = st.products.filter((p) => p.stock > 0 && (st.cat === 'Semua' || p.category === st.cat) && (!q || p.name.toLowerCase().includes(q) || (p.barcode || '').toLowerCase().includes(q)));
-    const inCart = Object.fromEntries(st.cart.map((c) => [c.id, c.qty]));
+    const inCart = {}; st.cart.forEach((c) => { inCart[c.id] = c.qty; });
+    const list = groups().filter((g) => g.items.some((p) => p.stock > 0) && (st.cat === 'Semua' || g.category === st.cat) &&
+      (!q || g.items.some((p) => [p.name, p.barcode, p.model, p.color, p.size].join(' ').toLowerCase().includes(q))));
     if (!list.length) { el('[data-grid]').innerHTML = emptyState(st.products.some((p) => p.stock > 0) ? 'Barang tidak ditemukan.' : (st.products.length ? 'Semua barang sedang habis. Tambah stok di menu Produk & stok.' : 'Belum ada barang. Tambahkan lewat menu Produk & stok.')); return; }
-    el('[data-grid]').innerHTML = list.slice(0, 400).map((p) => {
-      const out = p.stock <= 0; const b = Promo.badgeFor(p, act);
-      return `<button class="prod" data-add="${p.id}" ${out ? 'disabled style="opacity:.45"' : ''}>
+    el('[data-grid]').innerHTML = list.slice(0, 400).map((g) => {
+      const avail = g.items.filter((p) => p.stock > 0);
+      const stock = avail.reduce((s, p) => s + p.stock, 0);
+      const prices = avail.map(effPrice), lo = Math.min(...prices), hi = Math.max(...prices);
+      const orig = Math.max(...avail.map((p) => p.price));
+      const colors = [...new Set(avail.map((p) => p.color).filter(Boolean))], sizes = sortSizes([...new Set(avail.map((p) => p.size).filter(Boolean))]);
+      const b = avail.map((p) => Promo.badgeFor(p, act)).find(Boolean);
+      const qty = g.items.reduce((s, p) => s + (inCart[p.id] || 0), 0);
+      const vinfo = g.model ? [sizes.length ? sizes.join(' · ') : '', colors.length > 1 ? colors.length + ' warna' : colors[0] || ''].filter(Boolean).join(' — ') : (g.category || '');
+      return `<button class="prod" data-g="${esc(g.key)}">
+        ${thumb(g.image, g.name)}
         ${b ? `<span class="bdg" style="background:${BADGE_COLORS[b.badge_color] || '#7C3AED'}">${esc(b.badge_text)}</span>` : ''}
-        ${inCart[p.id] ? `<span class="qtyin">${inCart[p.id]}</span>` : ''}
-        <span class="nm">${esc(p.name)}</span>
-        <span class="meta">${esc(p.category || 'Tanpa kategori')} · ${out ? '<span class="danger bold">Habis</span>' : p.stock <= 3 ? `<span class="low">Sisa ${p.stock}</span>` : 'Stok ' + p.stock}</span>
-        <span class="pr">${p.discount > 0 ? `<s>${rupiah(p.price)}</s>${rupiah(p.price - p.discount)}` : rupiah(p.price)}</span>
+        ${qty ? `<span class="qtyin">${qty}</span>` : ''}
+        <span class="pinfo"><span class="nm">${esc(g.name)}</span>
+        ${colors.length > 1 ? `<span class="sws">${colors.slice(0, 6).map(swatch).join('')}${colors.length > 6 ? `<small>+${colors.length - 6}</small>` : ''}</span>` : ''}
+        <span class="meta">${esc(vinfo)}</span>
+        <span class="pr">${lo < orig && lo === hi ? `<s>${rupiah(orig)}</s>` : ''}${lo === hi ? rupiah(lo) : rupiah(lo) + '–' + rupiah(hi).replace('Rp', '')}<em class="${stock <= 3 ? 'low' : ''}">${stock <= 3 ? 'Sisa ' + stock : stock + ' pcs'}</em></span></span>
       </button>`;
     }).join('');
+  }
+  // pilih warna & ukuran
+  function variantSheet(g) {
+    const items = g.items;
+    const colors = [...new Set(items.map((p) => p.color))];
+    const sizes = sortSizes([...new Set(items.map((p) => p.size))]);
+    const hasC = colors.some(Boolean), hasS = sizes.some(Boolean);
+    let color = hasC ? (colors.find((c) => items.some((p) => p.color === c && p.stock > 0)) ?? colors[0]) : '';
+    let size = null, qty = 1;
+    const find = () => items.find((p) => p.color === color && p.size === (hasS ? size : p.size)) || null;
+    const m = modal({ title: g.name, size: 'wide', body: `<div class="vsheet"><div class="vs-img">${thumb(g.image, g.name, 'lg')}</div><div class="vs-body" data-vb></div></div>`,
+      foot: '<button class="btn" data-x>Batal</button><button class="btn gold" data-ok style="min-width:180px">Tambah ke keranjang</button>' });
+    const draw = () => {
+      const p = find();
+      const inCart = (id) => (st.cart.find((c) => c.id === id) || {}).qty || 0;
+      m.$('[data-vb]').innerHTML = `
+        <div class="vs-price">${p ? (p.discount > 0 ? `<s>${rupiah(p.price)}</s> ` : '') + rupiah(effPrice(p)) : rupiah(Math.min(...items.map(effPrice)))}</div>
+        <div class="small muted">${esc(g.category || '')}${p ? ' · ' + esc(p.barcode || '') : ''}</div>
+        ${hasC ? `<div class="vs-l">Warna${color ? ': <b>' + esc(color) + '</b>' : ''}</div><div class="vchips">${colors.map((c) => { const st2 = items.filter((x) => x.color === c).reduce((s, x) => s + x.stock, 0); return `<button data-c="${esc(c)}" class="${c === color ? 'on' : ''}" ${st2 <= 0 ? 'disabled' : ''}>${swatch(c)}${esc(c || '—')}</button>`; }).join('')}</div>` : ''}
+        ${hasS ? `<div class="vs-l">Ukuran</div><div class="vchips size">${sizes.map((z) => { const v = items.find((x) => x.color === color && x.size === z); const left = v ? v.stock - inCart(v.id) : 0; return `<button data-z="${esc(z)}" class="${z === size ? 'on' : ''}" ${!v || left <= 0 ? 'disabled' : ''}><b>${esc(z || '—')}</b><small>${v ? (left <= 0 ? 'habis' : 'stok ' + left) : '—'}</small></button>`; }).join('')}</div>` : ''}
+        <div class="vs-l">Jumlah</div><div class="row"><div class="qty big"><button data-q="-1" aria-label="Kurangi">−</button><input value="${qty}" data-qv inputmode="numeric" aria-label="Jumlah"><button data-q="1" aria-label="Tambah">+</button></div>
+        <span class="small muted">${p ? `Stok ${esc(p.color || '')} ${esc(p.size || '')}: <b>${p.stock - inCart(p.id)}</b>` : hasS ? 'Pilih ukuran' : ''}</span></div>`;
+      m.$('[data-ok]').disabled = !p || p.stock - inCart(p.id) <= 0;
+    };
+    // pilih otomatis bila hanya ada satu ukuran tersedia
+    const autoSize = () => { const av = sizes.filter((z) => items.some((x) => x.color === color && x.size === z && x.stock > 0)); if (!hasS) size = sizes[0]; else if (av.length === 1) size = av[0]; else if (size !== null && !av.includes(size)) size = null; };
+    autoSize(); draw();
+    m.$('[data-vb]').onclick = (e) => {
+      const c = e.target.closest('[data-c]'), z = e.target.closest('[data-z]'), q = e.target.closest('[data-q]');
+      if (c) { color = c.dataset.c; autoSize(); }
+      if (z) size = z.dataset.z;
+      if (q) qty = Math.max(1, qty + +q.dataset.q);
+      draw();
+    };
+    m.$('[data-vb]').oninput = (e) => { if (e.target.dataset.qv !== undefined) qty = Math.max(1, num(e.target.value) || 1); };
+    m.$('[data-x]').onclick = () => m.close();
+    m.$('[data-ok]').onclick = () => { const p = find(); if (!p) return; if (addToCart(p, qty)) { m.close(); toast('Ditambahkan', `${p.name} × ${qty}`, 'ok'); } };
   }
   function renderCart() {
     if (!alive()) return;
@@ -348,14 +403,17 @@ async function Kasir(page) {
     el('[data-member]').classList.toggle('primary', !!m);
     el('[data-shiplabel]').textContent = st.shipping ? st.shipping.courier : 'Kirim';
     el('[data-ship]').classList.toggle('primary', !!st.shipping);
-    el('[data-items]').innerHTML = st.cart.length ? st.cart.map((c) => {
+    el('[data-returlabel]').textContent = st.retur ? 'Retur ' + st.retur.invoice.slice(-4) : 'Tukar / retur';
+    el('[data-retur]').classList.toggle('primary', !!st.retur);
+    const retBlock = st.retur ? `<div class="retblock"><div class="row"><b class="grow">${icon('rotate')} Dikembalikan · ${esc(st.retur.invoice)}</b><button class="btn ghost sm" data-rmret>Batal</button></div>${st.retur.items.map((i) => `<div class="r"><span>${esc(i.name)} × ${i.qty}</span><span>−${rupiah(i.price * i.qty)}</span></div>`).join('')}<div class="small muted">${st.cart.length ? 'Barang pengganti ada di bawah.' : 'Tambahkan barang pengganti (tukar size/warna), atau langsung bayar untuk mengembalikan uang.'}</div></div>` : '';
+    el('[data-items]').innerHTML = retBlock + (st.cart.length ? st.cart.map((c) => {
       const ip = r.pc.itemPromo[c.id]; const disc = (ip ? ip.amount : 0) + (c.discount || 0) * c.qty;
       return `<div class="line"><div class="t"><b>${esc(c.name)}</b><button class="btn ghost icon sm" data-del="${c.id}" aria-label="Hapus">${icon('trash')}</button></div>
         <div class="c"><div class="qty"><button data-dec="${c.id}" aria-label="Kurangi">−</button><input data-qty="${c.id}" value="${c.qty}" inputmode="numeric" aria-label="Jumlah"><button data-inc="${c.id}" aria-label="Tambah">+</button></div>
         <span class="pp">@${rupiah(c.price)}${c.price !== c.original_price ? ' <span class="chip amber">diubah</span>' : ''} <button data-price="${c.id}">ubah</button></span>
         <span class="sum">${disc > 0 ? `<s>${rupiah(c.price * c.qty)}</s>${rupiah(c.price * c.qty - disc)}` : rupiah(c.price * c.qty)}</span></div>
         ${disc > 0 ? `<div class="dl">Hemat ${rupiah(disc)}${ip ? ' · ' + esc(ip.promoName) : ''}${c.discount > 0 ? (ip ? ' + ' : ' · ') + 'harga khusus' : ''}</div>` : ''}</div>`;
-    }).join('') : `<div class="empty" style="padding:50px 10px">${icon('cart')}Scan barcode atau ketuk barang untuk mulai.</div>`;
+    }).join('') : st.retur ? '' : `<div class="empty" style="padding:50px 10px">${icon('cart')}Scan barcode atau ketuk barang untuk mulai.</div>`);
 
     const chips = [
       ...st.vouchers.map((p) => `<span class="chip blue">${esc(p.code)} <button data-rmv="${p.id}" aria-label="Hapus promo">×</button></span>`),
@@ -379,10 +437,11 @@ async function Kasir(page) {
       ${r.rewardDisc > 0 ? `<div class="r minus"><span>Tukar poin</span><span>−${rupiah(r.rewardDisc)}</span></div>` : ''}
       ${st.fees.map((f) => `<div class="r"><span>${esc(f.label)}</span><span>+${rupiah(f.amount)}</span></div>`).join('')}
       ${st.shipping ? `<div class="r"><span>Ongkir ${esc(st.shipping.courier)}</span><span>${r.shipFee ? '+' + rupiah(r.shipFee) : 'dibayar penerima'}</span></div>` : ''}
-      <div class="r big"><span>Total</span><span>${rupiah(r.total)}</span></div>
+      ${r.retAmount ? `<div class="r minus"><span>Barang dikembalikan</span><span>−${rupiah(r.retAmount)}</span></div>` : ''}
+      <div class="r big"><span>${r.total < 0 ? 'Uang dikembalikan' : 'Total'}</span><span>${rupiah(Math.abs(r.total))}</span></div>
       ${m && eligible.length && !st.reward ? `<button class="btn sm" data-reward style="margin-top:6px;width:100%">${icon('gift')} ${eligible.length} reward poin bisa ditukar</button>` : ''}`;
-    el('[data-pay]').disabled = !st.cart.length;
-    el('[data-pay]').textContent = st.cart.length ? 'Bayar ' + rupiah(r.total) : 'Bayar';
+    el('[data-pay]').disabled = !st.cart.length && !st.retur;
+    el('[data-pay]').textContent = r.total < 0 ? 'Kembalikan ' + rupiah(-r.total) : st.retur && r.total === 0 ? 'Selesaikan tukar' : (st.cart.length || st.retur) ? 'Bayar ' + rupiah(r.total) : 'Bayar';
     el('[data-fabcount]').textContent = r.count + ' barang';
     el('[data-fabtotal]').textContent = rupiah(r.total);
     renderPromos();
@@ -393,10 +452,10 @@ async function Kasir(page) {
   function addToCart(p, qty = 1) {
     const ex = st.cart.find((c) => c.id === p.id);
     const have = ex ? ex.qty : 0;
-    if (have + qty > p.stock) { toast('Stok tidak cukup', `${p.name}: sisa ${p.stock}`, 'err'); return; }
+    if (have + qty > p.stock) { toast('Stok tidak cukup', `${p.name}: sisa ${p.stock}`, 'err'); return false; }
     if (ex) ex.qty += qty;
-    else st.cart.push({ id: p.id, name: p.name, barcode: p.barcode, category: p.category, price: p.price, original_price: p.price, cost: p.cost, commission: p.commission, discount: p.discount || 0, qty, stock: p.stock });
-    refresh();
+    else st.cart.push({ id: p.id, name: p.name, barcode: p.barcode, category: p.category, model: p.model, size: p.size, color: p.color, price: p.price, original_price: p.price, cost: p.cost, commission: p.commission, discount: p.discount || 0, qty, stock: p.stock });
+    refresh(); return true;
   }
   function setQty(id, q) {
     const c = st.cart.find((x) => x.id === id); if (!c) return;
@@ -409,10 +468,13 @@ async function Kasir(page) {
   }
   function handleScan(code) {
     code = code.trim(); if (!code) return;
+    if (/^INV\d{6}-\d+$/i.test(code)) { scan.value = ''; st.q = ''; renderGrid(); returModal(code.toUpperCase()); return; }
     const p = st.products.find((x) => x.barcode && x.barcode.toLowerCase() === code.toLowerCase());
     if (p) { addToCart(p); toast('Ditambahkan', p.name); scan.value = ''; st.q = ''; renderGrid(); return; }
-    const matches = st.products.filter((x) => x.name.toLowerCase().includes(code.toLowerCase()));
+    const matches = st.products.filter((x) => x.stock > 0 && x.name.toLowerCase().includes(code.toLowerCase()));
     if (matches.length === 1) { addToCart(matches[0]); scan.value = ''; st.q = ''; renderGrid(); return; }
+    const gs = groups().filter((g) => g.items.some((x) => x.stock > 0) && g.name.toLowerCase().includes(code.toLowerCase()));
+    if (gs.length === 1) { variantSheet(gs[0]); return; }
     if (!matches.length) toast('Barang tidak ditemukan', code, 'err');
   }
 
@@ -519,19 +581,65 @@ async function Kasir(page) {
   async function addProductModal() {
     let pin = '';
     if (!isAdmin) { pin = await askPin('Menambah barang hanya untuk admin. Minta admin memasukkan PIN admin.'); if (!pin) return; }
-    const m = modal({ title: 'Tambah barang baru', size: 'wide', body: `<div class="grid2" data-f>${field('Nama barang', 'name')}${field('Barcode / kode', 'barcode', scan.value.trim())}${field('Kategori', 'category', '', { attrs: 'list="catlist"' })}${field('Stok', 'stock', '', { numeric: true })}${field('Harga beli', 'cost', '', { numeric: true })}${field('Harga jual', 'price', '', { numeric: true })}${field('Komisi sales / pcs', 'commission', '', { numeric: true })}</div><datalist id="catlist">${[...new Set(st.products.map((p) => p.category).filter(Boolean))].map((c) => `<option value="${esc(c)}">`).join('')}</datalist>${isAdmin ? '' : '<p class="small muted"><span class="chip green">PIN admin diterima</span> Barang baru langsung tersimpan di data produk.</p>'}`, foot: '<button class="btn primary" data-ok>Simpan barang</button>' });
-    m.$('[data-ok]').onclick = async () => {
-      const v = formValues(m.$('[data-f]'));
-      if (!v.name) { toast('Nama barang wajib diisi', '', 'err'); return; }
-      if (!(v.price > 0)) { toast('Harga jual wajib diisi', '', 'err'); return; }
-      try { const rec = await db.create('products', v, { pin }); st.products.push(rec); st.products.sort((a, b) => a.name.localeCompare(b.name)); m.close(); toast('Barang ditambahkan', rec.name, 'ok'); renderCats(); if (rec.stock > 0) addToCart(rec); else renderGrid(); }
-      catch (ex) { toastErr(ex); }
+    productModelModal({ pin, barcode: scan.value.trim(), categories: [...new Set(st.products.map((p) => p.category).filter(Boolean))], onSaved: (items) => {
+      (items || []).forEach((it) => { const i = st.products.findIndex((x) => x.id === it.id); if (i >= 0) st.products[i] = it; else st.products.push(it); });
+      st.products.sort((a, b) => a.name.localeCompare(b.name)); scan.value = ''; st.q = ''; renderCats(); renderGrid();
+    } });
+  }
+
+  // ---------- tukar / retur barang
+  async function returModal(invoice = '') {
+    const days = num(S.return_days) || 7;
+    const m = modal({ title: 'Tukar / retur barang', size: 'wide', body: `<div class="stack">
+      <form class="row" data-f><input class="input" data-inv placeholder="No. invoice di struk, mis. INV261111-1234" value="${esc(invoice)}" style="text-transform:uppercase"><button class="btn primary">Cari</button></form>
+      <p class="small muted" style="margin:-4px 0 0">Bisa juga scan barcode invoice di struk. Batas tukar toko: ${days} hari.</p><div data-res></div></div>` });
+    let recent = [];
+    const pick = (t) => {
+      const back = {}; (t.returned || []).forEach((r) => { back[r.id] = (back[r.id] || 0) + r.qty; });
+      const rows = (t.items || []).map((i) => ({ ...i, left: i.qty - (back[i.id] || 0), unit: Math.round((i.price * i.qty - (i.itemDiscount || 0)) / i.qty), take: 0 }));
+      const age = Math.floor((Date.now() - parseDT(t.created)) / 86400000);
+      const draw = () => {
+        const sum = rows.reduce((s, i) => s + i.unit * i.take, 0);
+        m.$('[data-res]').innerHTML = `<div class="panel"><div class="panel-h"><div><h3>${esc(t.invoice)}</h3><span class="small muted">${fmtDT(t.created)} · ${esc(t.member_name || 'tanpa member')} · ${rupiah(t.total)}</span></div>${age > days ? `<span class="chip red">${age} hari lalu — lewat batas tukar</span>` : `<span class="chip green">${age} hari lalu</span>`}</div>
+          ${table([{ label: 'Barang', html: (i) => `<b>${esc(i.name)}</b><div class="small muted">dibayar ${rupiah(i.unit)} / pcs</div>` }, { label: 'Dibeli', num: true, get: (i) => i.qty }, { label: 'Bisa diretur', num: true, get: (i) => i.left },
+            { label: 'Dikembalikan', num: true, html: (i, k) => (i.left > 0 ? `<div class="qty"><button data-d="${k}" aria-label="Kurangi">−</button><input value="${i.take}" readonly aria-label="Jumlah"><button data-u="${k}" aria-label="Tambah">+</button></div>` : '<span class="chip">sudah diretur</span>') }], rows)}
+          <div class="panel-b row"><span class="grow">Nilai barang dikembalikan: <b>${rupiah(sum)}</b></span><button class="btn gold" data-go ${sum ? '' : 'disabled'}>Masukkan ke keranjang</button></div></div>`;
+      };
+      draw();
+      m.$('[data-res]').onclick = (e) => {
+        const d = e.target.closest('[data-d]'), u = e.target.closest('[data-u]');
+        if (d) { const i = rows[+d.dataset.d]; i.take = Math.max(0, i.take - 1); draw(); }
+        if (u) { const i = rows[+u.dataset.u]; i.take = Math.min(i.left, i.take + 1); draw(); }
+        if (e.target.closest('[data-go]')) {
+          st.retur = { invoice: t.invoice, items: rows.filter((i) => i.take > 0).map((i) => ({ id: i.id, name: i.name, qty: i.take, price: i.unit })) };
+          if (t.member_id && !st.memberId) st.memberId = t.member_id;
+          m.close(); refresh(); document.body.classList.add('cart-open');
+          toast('Barang retur dimasukkan', 'Pilih barang pengganti, lalu bayar selisihnya.', 'ok');
+        }
+      };
     };
+    const showList = (q = '') => {
+      const l = recent.filter((t) => !q || [t.invoice, t.member_name].join(' ').toLowerCase().includes(q.toLowerCase())).slice(0, 30);
+      m.$('[data-res]').innerHTML = l.length ? `<div class="pick">${l.map((t) => `<button data-t="${t.id}"><div class="grow"><b>${esc(t.invoice)}</b><div class="small muted">${fmtDT(t.created)} · ${esc(t.member_name || '')} ${t.item_count} barang</div></div><b>${rupiah(t.total)}</b></button>`).join('')}</div>` : emptyState('Transaksi tidak ditemukan.');
+      $$('[data-t]', m.el).forEach((b) => (b.onclick = () => pick(recent.find((t) => t.id === +b.dataset.t))));
+    };
+    const find = async () => {
+      const v = m.$('[data-inv]').value.trim().toUpperCase();
+      if (/^INV/.test(v)) {
+        try { const l = await db.list('transactions', { where: { invoice: v }, limit: 1 }); if (l[0]) return pick(l[0]); } catch (e) { toastErr(e); return; }
+        m.$('[data-res]').innerHTML = emptyState('Invoice ' + v + ' tidak ditemukan.'); return;
+      }
+      showList(v);
+    };
+    m.$('[data-f]').onsubmit = (e) => { e.preventDefault(); find(); };
+    try { recent = (await db.list('transactions', { from: ymd(addDays(new Date(), -Math.max(days, 14))), limit: 300 })).filter((t) => t.total > 0 && (t.items || []).length); } catch (e) { /* abaikan */ }
+    if (invoice) find(); else showList();
+    m.$('[data-inv]').oninput = debounce(() => { if (!/^INV\d{6}-/i.test(m.$('[data-inv]').value)) showList(m.$('[data-inv]').value.trim()); }, 200);
   }
 
   // ---------- pembayaran
   function requestPay() {
-    if (!st.cart.length) return;
+    if (!st.cart.length && !st.retur) return;
     const r = calc();
     const threshold = num(S.member_offer_threshold || 200000);
     if (!r.m && threshold > 0 && r.total > threshold && !st.offerShown) {
@@ -546,10 +654,17 @@ async function Kasir(page) {
   function payModal() {
     const r = calc();
     let method = 'cash';
+    const refund = r.total <= 0;
+    const chs = salesChannels();
+    let channel = (() => { try { const c = localStorage.getItem('pos-channel'); return chs.includes(c) ? c : chs[0]; } catch (e) { return chs[0]; } })();
+    const chHTML = `<div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Saluran penjualan</div><div class="quick chs" data-ch>${chs.map((c) => `<button data-chv="${esc(c)}" class="${c === channel ? 'on' : ''}">${esc(c)}</button>`).join('')}</div></div>`;
     const quick = [...new Set([r.total, Math.ceil(r.total / 50000) * 50000, Math.ceil(r.total / 100000) * 100000, 100000, 200000, 500000].filter((v) => v >= r.total))].slice(0, 5);
-    const m = modal({ title: 'Pembayaran', body: `
+    const m = modal({ title: refund ? 'Selesaikan retur' : 'Pembayaran', body: refund ? `
+      <div class="bigtotal ${r.total < 0 ? 'refund' : ''}"><span>${r.total < 0 ? 'Uang dikembalikan ke pelanggan' : 'Tukar barang — tidak ada selisih'}</span><b>${rupiah(-r.total)}</b></div>
+      <div class="stack" style="margin-top:14px">${chHTML}${field('Alasan / catatan retur', 'note', st.note, { placeholder: 'Kebesaran, salah warna, cacat…' })}<input type="hidden" name="sales" value=""><input type="hidden" name="pay" value="0"></div>` : `
       <div class="bigtotal"><span>Total bayar</span><b>${rupiah(r.total)}</b></div>
       <div class="stack" style="margin-top:14px">
+        ${chHTML}
         <div class="paymethods">${[['cash', 'Tunai', 'cash'], ['qris', 'QRIS', 'qr'], ['transfer', 'Debit/Transfer', 'card']].map(([k, l, ic]) => `<button data-m="${k}" class="${k === 'cash' ? 'on' : ''}">${icon(ic)}${l}</button>`).join('')}</div>
         <div data-cashbox>${field('Uang diterima', 'pay', '', { numeric: true, placeholder: '0' })}
           <div class="quick" style="margin-top:8px">${quick.map((v) => `<button data-q="${v}">${v === r.total ? 'Uang pas' : rupiah(v)}</button>`).join('')}</div>
@@ -558,46 +673,48 @@ async function Kasir(page) {
         <div class="grid2">${field('Kode sales (opsional)', 'sales', '', { placeholder: 'SLS01', attrs: 'style="text-transform:uppercase" list="saleslist"' })}${field('Catatan (opsional)', 'note', st.note)}</div>
         <datalist id="saleslist">${st.sales.map((s) => `<option value="${esc(s.code)}">${esc(s.name)}</option>`).join('')}</datalist>
         <p class="small muted" data-salesname style="margin:-6px 0 0"></p>
-      </div>`, foot: '<button class="btn" data-cancel>Kembali</button><button class="btn gold" data-finish style="min-width:170px;height:44px">Selesaikan transaksi</button>' });
+      </div>`, foot: `<button class="btn" data-cancel>Kembali</button><button class="btn gold" data-finish style="min-width:170px;height:44px">${refund ? 'Selesaikan retur' : 'Selesaikan transaksi'}</button>` });
     const pay = m.$('[name=pay]');
+    m.$('[data-ch]').onclick = (e) => { const b = e.target.closest('[data-chv]'); if (!b) return; channel = b.dataset.chv; m.$$('[data-chv]').forEach((x) => x.classList.toggle('on', x === b)); try { localStorage.setItem('pos-channel', channel); } catch (ex) { /* abaikan */ } };
     const upd = () => {
       const v = num(pay.value);
       const ch = m.$('[data-change]');
       if (method !== 'cash') { ch.textContent = ''; return; }
       ch.innerHTML = v >= r.total ? `Kembalian: <span class="money">${rupiah(v - r.total)}</span>` : v > 0 ? `<span class="danger">Kurang ${rupiah(r.total - v)}</span>` : '';
     };
-    pay.oninput = upd;
-    m.$$('[data-q]').forEach((b) => (b.onclick = () => { pay.value = b.dataset.q; upd(); }));
+    if (!refund) pay.oninput = upd;
+    if (!refund) m.$$('[data-q]').forEach((b) => (b.onclick = () => { pay.value = b.dataset.q; upd(); }));
     m.$$('[data-m]').forEach((b) => (b.onclick = () => { method = b.dataset.m; m.$$('[data-m]').forEach((x) => x.classList.toggle('on', x === b)); m.$('[data-cashbox]').classList.toggle('hidden', method !== 'cash'); const qb = m.$('[data-qrisbox]'); qb.classList.toggle('hidden', method !== 'qris'); if (method === 'qris') { qb.innerHTML = qrisPanel(r.total) + (App.settings.qris_payload ? `<div class="row" style="justify-content:center;margin-top:8px"><button class="btn sm" data-qfull>Tampilkan layar penuh</button></div><p class="small muted" style="margin:6px 0 0">Cek notifikasi dana masuk di aplikasi merchant QRIS sebelum menekan "Sudah dibayar".</p>` : ''); const fb = qb.querySelector('[data-qfull]'); if (fb) fb.onclick = () => qrisFullscreen(r.total); } m.$('[data-finish]').textContent = method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; upd(); }));
-    m.$('[name=sales]').oninput = (e) => { const s = st.sales.find((x) => x.code.toUpperCase() === e.target.value.trim().toUpperCase()); m.$('[data-salesname]').textContent = e.target.value.trim() ? (s ? 'Sales: ' + s.name : 'Kode sales tidak dikenal') : ''; };
+    if (!refund) m.$('[name=sales]').oninput = (e) => { const s = st.sales.find((x) => x.code.toUpperCase() === e.target.value.trim().toUpperCase()); m.$('[data-salesname]').textContent = e.target.value.trim() ? (s ? 'Sales: ' + s.name : 'Kode sales tidak dikenal') : ''; };
     m.$('[data-cancel]').onclick = () => m.close();
-    if (window.innerWidth > 700) setTimeout(() => pay.focus(), 40);
+    if (window.innerWidth > 700 && !refund) setTimeout(() => pay.focus(), 40);
     m.$('[data-finish]').onclick = async () => {
-      const payNum = method === 'cash' ? num(pay.value) : r.total;
-      if (method === 'cash' && payNum < r.total) { toast('Uang diterima kurang dari total', '', 'err'); pay.focus(); return; }
+      const payNum = refund ? 0 : method === 'cash' ? num(pay.value) : r.total;
+      if (!refund && method === 'cash' && payNum < r.total) { toast('Uang diterima kurang dari total', '', 'err'); pay.focus(); return; }
       const btn = m.$('[data-finish]'); btn.disabled = true; btn.textContent = 'Menyimpan…';
       const extra = r.memberDisc + r.rewardDisc;
       const items = st.cart.map((c) => { const ip = r.pc.itemPromo[c.id]; const line = c.price * c.qty; return { id: c.id, qty: c.qty, price: c.price, discount: c.discount, promoName: ip ? ip.promoName : '', itemDiscount: Math.round((ip ? ip.amount : 0) + (c.discount || 0) * c.qty + (r.subtotal ? (line / r.subtotal) * extra : 0)) }; });
       try {
         const trx = await api('checkout', {
           items, discount: r.discount, fee: r.fee, fee_note: [...st.fees.map((f) => `${f.label} ${rupiah(f.amount)}`), st.shipping && st.shipping.fee ? `Ongkir ${st.shipping.courier} ${rupiah(st.shipping.fee)}` : ''].filter(Boolean).join('; '), shipping: st.shipping,
-          payment: payNum, payment_method: method, member_id: st.memberId, reward_id: st.reward ? st.reward.id : null, voucher_applied: r.voucher > 0,
+          payment: payNum, payment_method: method, member_id: st.memberId, channel,
+          retur: st.retur ? { invoice: st.retur.invoice, items: st.retur.items.map((i) => ({ id: i.id, qty: i.qty })) } : null, reward_id: st.reward ? st.reward.id : null, voucher_applied: r.voucher > 0,
           sales_code: m.$('[name=sales]').value.trim(), promo_name: [...r.promoNames, st.reward ? 'Tukar poin: ' + st.reward.name : ''].filter(Boolean).join(', '),
           note: [m.$('[name=note]').value.trim(), st.reward && st.reward.type === 'product' ? 'Hadiah poin: ' + st.reward.product_name : ''].filter(Boolean).join(' | '),
         });
         m.close(); doneModal(trx);
-      } catch (ex) { toastErr(ex); btn.disabled = false; btn.textContent = method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; }
+      } catch (ex) { toastErr(ex); btn.disabled = false; btn.textContent = refund ? 'Selesaikan retur' : method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; }
     };
   }
   function doneModal(trx) {
-    const m = modal({ title: 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
+    const m = modal({ title: 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.total < 0 ? `<h1 style="margin-top:10px">Kembalikan uang ${rupiah(-trx.total)}</h1>` : trx.return_ref && trx.total === 0 ? '<h1 style="margin-top:10px">Tukar barang selesai</h1>' : trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
       foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Sofeeya Store'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>Transaksi baru</button>`, onClose: () => newSale() });
     m.$('[data-print]').onclick = () => printHTML(receiptHTML(trx, S));
     const bt = m.$('[data-bt]'); if (bt) bt.onclick = async () => { try { await Printer.print(escposReceipt(trx, S)); toast('Struk dikirim ke printer', '', 'ok'); } catch (ex) { toastErr(ex); } };
     m.$('[data-new]').onclick = () => m.close();
   }
   async function newSale() {
-    Object.assign(st, { cart: [], memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false });
+    Object.assign(st, { cart: [], memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null });
     document.body.classList.remove('cart-open');
     try { const [p, mem] = await Promise.all([db.list('products'), db.list('members')]); st.products = p; st.members = mem; } catch (e) { /* biarkan */ }
     refresh(); if (window.innerWidth > 900) scan.focus();
@@ -612,13 +729,19 @@ async function Kasir(page) {
   el('[data-kmenu]').onclick = () => App.rail(true);
   el('[data-cats]').onclick = (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; st.cat = b.dataset.cat; renderCats(); renderGrid(); };
   el('[data-promos]').onclick = (e) => { const b = e.target.closest('[data-promo]'); if (!b) return; const p = st.promos.find((x) => x.id === +b.dataset.promo); if (p.code) applyVoucher(p.code); else toast('Promo otomatis', `${p.name} langsung terpotong saat syarat terpenuhi.`); };
-  el('[data-grid]').onclick = (e) => { const b = e.target.closest('[data-add]'); if (!b) return; const p = st.products.find((x) => x.id === +b.dataset.add); if (p) addToCart(p); };
+  el('[data-grid]').onclick = (e) => {
+    const b = e.target.closest('[data-g]'); if (!b) return;
+    const g = groups().find((x) => x.key === b.dataset.g); if (!g) return;
+    const avail = g.items.filter((p) => p.stock > 0);
+    if (!g.model && avail.length === 1) addToCart(avail[0]); else variantSheet(g);
+  };
   el('[data-items]').onclick = (e) => {
     const t = e.target.closest('button'); if (!t) return;
     if (t.dataset.inc) setQty(+t.dataset.inc, st.cart.find((c) => c.id === +t.dataset.inc).qty + 1);
     if (t.dataset.dec) setQty(+t.dataset.dec, st.cart.find((c) => c.id === +t.dataset.dec).qty - 1);
     if (t.dataset.del) setQty(+t.dataset.del, 0);
     if (t.dataset.price) priceModal(+t.dataset.price);
+    if (t.dataset.rmret !== undefined) { st.retur = null; renderCart(); }
   };
   el('[data-items]').onchange = (e) => { if (e.target.dataset.qty) setQty(+e.target.dataset.qty, num(e.target.value)); };
   el('[data-extras]').onclick = (e) => {
@@ -634,7 +757,8 @@ async function Kasir(page) {
   el('[data-voucher]').onclick = voucherModal;
   el('[data-fee]').onclick = feeModal;
   el('[data-ship]').onclick = shipModal;
-  el('[data-clear]').onclick = async () => { if (st.cart.length && await confirmBox('Kosongkan keranjang?', 'Semua barang, promo, dan member di keranjang ini akan dihapus.', 'Kosongkan')) newSale(); };
+  el('[data-retur]').onclick = () => returModal();
+  el('[data-clear]').onclick = async () => { if ((st.cart.length || st.retur) && await confirmBox('Kosongkan keranjang?', 'Semua barang, promo, dan member di keranjang ini akan dihapus.', 'Kosongkan')) newSale(); };
   el('[data-pay]').onclick = requestPay;
   el('[data-opencart]').onclick = () => document.body.classList.add('cart-open');
   el('[data-closecart]').onclick = () => document.body.classList.remove('cart-open');

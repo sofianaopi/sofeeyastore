@@ -372,7 +372,7 @@ function mapRow(raw, aliases) {
   return o;
 }
 const ALIASES = {
-  product: { name: ['name', 'nama', 'nama_produk', 'produk', 'nama_barang'], barcode: ['barcode', 'barcode_kode', 'kode', 'kode_barcode', 'sku'], category: ['category', 'kategori'], cost: ['cost', 'harga_beli', 'hargabeli', 'modal'], price: ['price', 'harga', 'harga_jual', 'hargajual'], discount: ['discount', 'diskon', 'diskon_pcs', 'potongan', 'potongan_harga'], stock: ['stock', 'stok', 'stok_awal'], commission: ['commission', 'komisi', 'komisi_sales_pcs', 'komisi_per_pcs'] },
+  product: { model: ['model', 'nama_model', 'artikel', 'style'], color: ['color', 'warna', 'colour'], size: ['size', 'ukuran', 'uk'], name: ['name', 'nama', 'nama_produk', 'produk', 'nama_barang'], barcode: ['barcode', 'barcode_kode', 'kode', 'kode_barcode', 'sku'], category: ['category', 'kategori'], cost: ['cost', 'harga_beli', 'hargabeli', 'modal'], price: ['price', 'harga', 'harga_jual', 'hargajual'], discount: ['discount', 'diskon', 'diskon_pcs', 'potongan', 'potongan_harga'], stock: ['stock', 'stok', 'stok_awal'], commission: ['commission', 'komisi', 'komisi_sales_pcs', 'komisi_per_pcs'] },
   discount: { barcode: ['barcode', 'barcode_kode', 'kode', 'kode_barcode'], name: ['name', 'nama', 'nama_produk', 'produk'], discount: ['discount', 'diskon', 'diskon_pcs', 'potongan', 'potongan_harga', 'harga_khusus'] },
   member: { name: ['name', 'nama'], phone: ['phone', 'telepon', 'hp', 'no_hp', 'no_telepon', 'wa'], email: ['email'], points: ['points', 'poin'] },
 };
@@ -428,6 +428,30 @@ const COURIERS = [
 function courierInfo(id) { return COURIERS.find((c) => c.id === id) || { id, type: 'paket', site: '' }; }
 function trackURL(sh) { if (sh && sh.tracking_link) return sh.tracking_link; if (!sh || !sh.resi) return ''; if (/^https?:\/\//i.test(sh.resi)) return sh.resi; return courierInfo(sh.courier).type === 'paket' ? 'https://cekresi.com/?noresi=' + encodeURIComponent(sh.resi) : ''; }
 function waLink(phone, text) { const n = String(phone || '').replace(/\D/g, '').replace(/^0/, '62'); return 'https://wa.me/' + n + '?text=' + encodeURIComponent(text); }
+// ---------------------------------------------------------------- fashion: saluran, ukuran, warna, foto
+function jsonSetting(k, def) { try { const a = JSON.parse(App.settings[k] || ''); return Array.isArray(a) && a.length ? a : def; } catch (e) { return def; } }
+function salesChannels() { return jsonSetting('sales_channels', ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop']); }
+function sizeSets() { return jsonSetting('size_sets', ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40']); }
+const SIZE_ORDER = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', '2XL', 'XXXL', '3XL', '4XL', '5XL', 'ALL SIZE', 'FREE SIZE', 'ALLSIZE'];
+function sizeRank(z) { const u = String(z || '').toUpperCase().trim(); const i = SIZE_ORDER.indexOf(u); if (i >= 0) return i; const n = parseFloat(u); return Number.isFinite(n) ? 100 + n : 1000; }
+function sortSizes(list) { return [...list].sort((a, b) => sizeRank(a) - sizeRank(b) || String(a).localeCompare(String(b))); }
+const SWATCH = { hitam: '#1d1d1f', black: '#1d1d1f', putih: '#ffffff', white: '#ffffff', 'broken white': '#f3eee3', offwhite: '#f3eee3', 'off white': '#f3eee3', cream: '#efe3c8', krem: '#efe3c8', beige: '#dcc8a8', mocca: '#a47e5f', mocha: '#a47e5f', coklat: '#7a4e2d', cokelat: '#7a4e2d', brown: '#7a4e2d', camel: '#c19a6b', khaki: '#bdaa7e', abu: '#9aa0a6', 'abu-abu': '#9aa0a6', grey: '#9aa0a6', gray: '#9aa0a6', misty: '#b9bec4', silver: '#c7c9cc', navy: '#1f2f5a', biru: '#2f6fd1', 'biru muda': '#9cc7ef', 'baby blue': '#a9cdf0', denim: '#4f6d8f', tosca: '#2bb3a3', toska: '#2bb3a3', hijau: '#2e8b57', sage: '#a3b49a', olive: '#7a7a3a', army: '#5b6340', emerald: '#1f8a6a', mint: '#a8e6cf', kuning: '#f2c438', mustard: '#d4a017', orange: '#f08a24', oranye: '#f08a24', merah: '#d23b3b', maroon: '#7b1f2b', marun: '#7b1f2b', burgundy: '#6d1a2f', wine: '#722f37', pink: '#f4a6c0', 'dusty pink': '#d8a7a7', 'dusty': '#d8a7a7', salem: '#f4a587', peach: '#f6c1a3', fanta: '#e7457a', fuschia: '#d0348a', fuchsia: '#d0348a', ungu: '#7d4fb3', lilac: '#c8a2c8', lavender: '#b9a7e0', taro: '#a99ac9', emas: '#d4af37', gold: '#d4af37', motif: 'conic-gradient(#d23b3b,#f2c438,#2e8b57,#2f6fd1,#d23b3b)', batik: 'conic-gradient(#7a4e2d,#d4a017,#7a4e2d,#efe3c8,#7a4e2d)' };
+function swatch(name) { const k = String(name || '').toLowerCase().trim(); if (!k) return ''; const c = SWATCH[k] || SWATCH[k.split(' ')[0]] || Object.entries(SWATCH).find(([n]) => k.includes(n))?.[1]; return c ? `<i class="sw" style="background:${c}"></i>` : `<i class="sw sw-x"></i>`; }
+function thumb(src, label = '', cls = '') {
+  if (src) return `<span class="thumb ${cls}"><img src="${esc(src)}" alt="" loading="lazy" decoding="async"></span>`;
+  const t = String(label || '?').trim().split(/\s+/).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase();
+  let h = 0; for (const ch of String(label)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `<span class="thumb ph ${cls}" style="--h:${h}"><b>${esc(t)}</b></span>`;
+}
+// kecilkan foto di HP sebelum diunggah (hemat kuota & cepat)
+function resizeImage(file, max = 900, q = 0.82) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Foto tidak bisa dibaca.'));
+    r.onload = () => { const img = new Image(); img.onerror = () => reject(new Error('File bukan foto yang valid.')); img.onload = () => { const k = Math.min(1, max / Math.max(img.width, img.height)); const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', q)); }; img.src = r.result; };
+    r.readAsDataURL(file);
+  });
+}
 function feePresets() { try { const a = JSON.parse(App.settings.fee_presets || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.label) : []; } catch (e) { return []; } }
 const PAY = { cash: 'Tunai', qris: 'QRIS', transfer: 'Debit/Transfer' };
 function escposReceipt(trx, s, width = 32) {
@@ -442,18 +466,22 @@ function escposReceipt(trx, s, width = 32) {
   if (trx.sales_name) o += 'Sales : ' + trx.sales_name + '\n';
   if (trx.member_name) o += 'Member: ' + trx.member_name + '\n';
   o += L();
+  if (trx.channel && trx.channel !== 'Toko') o += 'Pesanan: ' + trx.channel + '\n';
   (trx.items || []).forEach((it) => { o += it.name + '\n' + R(`${it.qty} x ${rupiah(it.price)}`, rupiah(it.qty * it.price)); if (it.itemDiscount > 0) o += R('  Diskon', '-' + rupiah(it.itemDiscount)); });
+  if ((trx.return_items || []).length) { o += L() + 'Retur dari ' + trx.return_ref + '\n'; trx.return_items.forEach((it) => { o += it.name + '\n' + R(`${it.qty} x ${rupiah(it.price)}`, '-' + rupiah(it.qty * it.price)); }); }
   o += L() + R('Subtotal', rupiah(trx.subtotal));
   if (trx.discount > 0) o += R('Potongan', '-' + rupiah(trx.discount));
   if (trx.fee > 0) o += R('Biaya tambahan', rupiah(trx.fee));
-  o += ESC + '!\x08' + R('TOTAL', rupiah(trx.total)) + ESC + '!\x00';
-  o += R('Bayar (' + (PAY[trx.payment_method] || 'Tunai') + ')', rupiah(trx.payment)) + R('Kembali', rupiah(trx.change));
+  if (trx.return_amount > 0) o += R('Nilai retur', '-' + rupiah(trx.return_amount));
+  if (trx.total < 0) o += ESC + '!\x08' + R('UANG KEMBALI', rupiah(-trx.total)) + ESC + '!\x00';
+  else { o += ESC + '!\x08' + R('TOTAL', rupiah(trx.total)) + ESC + '!\x00'; if (trx.total > 0) o += R('Bayar (' + (PAY[trx.payment_method] || 'Tunai') + ')', rupiah(trx.payment)) + R('Kembali', rupiah(trx.change)); }
   if (trx.member_name) o += L() + R('Poin didapat', '+' + (trx.points_earned || 0)) + R('Total poin', String(trx.member_points_after || 0));
   if (trx.shipping) o += L() + 'Kirim: ' + trx.shipping.courier + '\n' + (trx.shipping.recipient || '') + ' ' + (trx.shipping.phone || '') + '\n' + (trx.shipping.address || '') + '\n';
   if (trx.discount > 0) o += L() + ESC + 'a\x01' + 'Anda hemat ' + rupiah(trx.discount) + '\n';
   o += L() + ESC + 'a\x01';
   if (s.receipt_footer1) o += s.receipt_footer1 + '\n';
   if (s.receipt_footer2) o += s.receipt_footer2 + '\n';
+  if (trx.invoice && /^INV/.test(trx.invoice)) { const d = '{B' + trx.invoice; o += GS + 'h\x40' + GS + 'w\x02' + GS + 'H\x02' + GS + 'f\x00' + GS + 'k\x49' + String.fromCharCode(d.length) + d + '\n'; }
   return o + '\n\n\n' + GS + 'V\x42\x00';
 }
 function escposLabel(p) {
@@ -470,19 +498,21 @@ function receiptHTML(trx, s, wide = false) {
     <div class="c big">${esc(s.store_name || 'Sofeeya Store')}</div>
     ${s.receipt_address ? `<div class="c">${esc(s.receipt_address)}</div>` : ''}${s.receipt_phone ? `<div class="c">Telp: ${esc(s.receipt_phone)}</div>` : ''}
     <hr><div class="r"><span>${esc(trx.invoice)}</span><span>${fmtDT(trx.created)}</span></div>
-    ${trx.cashier ? `<div>Kasir: ${esc(trx.cashier)}</div>` : ''}${trx.sales_name ? `<div>Sales: ${esc(trx.sales_name)}</div>` : ''}${trx.member_name ? `<div>Member: ${esc(trx.member_name)}</div>` : ''}
-    <hr>${it}<hr>
+    ${trx.channel && trx.channel !== 'Toko' ? `<div>Pesanan: <b>${esc(trx.channel)}</b></div>` : ''}${trx.cashier ? `<div>Kasir: ${esc(trx.cashier)}</div>` : ''}${trx.sales_name ? `<div>Sales: ${esc(trx.sales_name)}</div>` : ''}${trx.member_name ? `<div>Member: ${esc(trx.member_name)}</div>` : ''}
+    <hr>${it}${(trx.return_items || []).length ? `<hr><div><b>Retur dari ${esc(trx.return_ref)}</b></div>${trx.return_items.map((i) => `<div>${esc(i.name)}</div><div class="r"><span>${i.qty} x ${rupiah(i.price)}</span><span>-${rupiah(i.qty * i.price)}</span></div>`).join('')}` : ''}<hr>
     <div class="r"><span>Subtotal</span><span>${rupiah(trx.subtotal)}</span></div>
     ${trx.discount > 0 ? `<div class="r"><span>Potongan</span><span>-${rupiah(trx.discount)}</span></div>` : ''}
     ${trx.fee > 0 ? `<div class="r"><span>Biaya tambahan${trx.fee_note ? ' (' + esc(trx.fee_note) + ')' : ''}</span><span>${rupiah(trx.fee)}</span></div>` : ''}
-    <div class="r big"><span>TOTAL</span><span>${rupiah(trx.total)}</span></div>
-    <div class="r"><span>Bayar (${PAY[trx.payment_method] || 'Tunai'})</span><span>${rupiah(trx.payment)}</span></div>
-    <div class="r"><span>Kembali</span><span>${rupiah(trx.change)}</span></div>
+    ${trx.return_amount > 0 ? `<div class="r"><span>Nilai retur</span><span>-${rupiah(trx.return_amount)}</span></div>` : ''}
+    ${trx.total < 0 ? `<div class="r big"><span>UANG KEMBALI</span><span>${rupiah(-trx.total)}</span></div>` : `<div class="r big"><span>TOTAL</span><span>${rupiah(trx.total)}</span></div>
+    ${trx.total > 0 ? `<div class="r"><span>Bayar (${PAY[trx.payment_method] || 'Tunai'})</span><span>${rupiah(trx.payment)}</span></div>
+    <div class="r"><span>Kembali</span><span>${rupiah(trx.change)}</span></div>` : ''}`}
     ${trx.member_name ? `<hr><div class="r"><span>Poin didapat</span><span>+${trx.points_earned || 0}</span></div><div class="r"><span>Total poin</span><span>${trx.member_points_after || 0}</span></div>` : ''}
     ${trx.discount > 0 ? `<hr><div class="c"><b>Anda hemat ${rupiah(trx.discount)}</b></div>` : ''}
     ${trx.shipping ? `<hr><div><b>Dikirim via ${esc(trx.shipping.courier)}</b></div><div>${esc(trx.shipping.recipient)}${trx.shipping.phone ? ' (' + esc(trx.shipping.phone) + ')' : ''}</div><div>${esc(trx.shipping.address)}</div>${trx.shipping.resi ? `<div>Resi: ${esc(trx.shipping.resi)}</div>` : ''}` : ''}
     ${trx.note ? `<hr><div>Catatan: ${esc(trx.note)}</div>` : ''}
-    <hr><div class="c">${esc(s.receipt_footer1 || '')}</div><div class="c">${esc(s.receipt_footer2 || '')}</div></div>`;
+    <hr><div class="c">${esc(s.receipt_footer1 || '')}</div><div class="c">${esc(s.receipt_footer2 || '')}</div>
+    ${trx.invoice && /^INV/.test(trx.invoice) ? `<div class="bc">${code128SVG(trx.invoice)}</div>` : ''}</div>`;
 }
 function printHTML(html) {
   let area = $('#print-area');

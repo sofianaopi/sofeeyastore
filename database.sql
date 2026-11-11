@@ -35,10 +35,14 @@ CREATE TABLE IF NOT EXISTS products (
   commission DECIMAL(14,2) NOT NULL DEFAULT 0,
   image VARCHAR(500) NOT NULL DEFAULT '',
   stock_in_date DATE NULL,
+  model VARCHAR(200) NOT NULL DEFAULT '',
+  size VARCHAR(30) NOT NULL DEFAULT '',
+  color VARCHAR(40) NOT NULL DEFAULT '',
   created DATETIME NULL,
   updated DATETIME NULL,
   INDEX idx_products_barcode (barcode),
-  INDEX idx_products_category (category)
+  INDEX idx_products_category (category),
+  INDEX idx_products_model (model)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS promos (
@@ -127,6 +131,11 @@ CREATE TABLE IF NOT EXISTS transactions (
   sales_code VARCHAR(50) NOT NULL DEFAULT '',
   commission DECIMAL(14,2) NOT NULL DEFAULT 0,
   note VARCHAR(1000) NOT NULL DEFAULT '',
+  channel VARCHAR(30) NOT NULL DEFAULT 'Toko',
+  return_ref VARCHAR(50) NOT NULL DEFAULT '',
+  return_items TEXT NULL,
+  return_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  returned TEXT NULL,
   created DATETIME NULL,
   updated DATETIME NULL,
   INDEX idx_tx_created (created),
@@ -267,11 +276,14 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('receipt_address', 'Andonohu, Kendari', NOW(), NOW()),
  ('receipt_phone', '', NOW(), NOW()),
  ('receipt_footer1', 'Terima kasih telah berbelanja', NOW(), NOW()),
- ('receipt_footer2', 'Barang yang sudah dibeli tidak dapat ditukar', NOW(), NOW()),
+ ('receipt_footer2', 'Tukar ukuran/warna maks. 7 hari dengan struk & label utuh', NOW(), NOW()),
  ('work_schedule', '{"startTime":"08:00","toleranceMinutes":15}', NOW(), NOW()),
  ('store_network', '{"ips":"","wifiName":""}', NOW(), NOW()),
  ('fee_presets', '[{"label":"Ongkir Maxim","amount":15000},{"label":"Ongkir Grab","amount":20000},{"label":"Ongkir J&T","amount":12000},{"label":"Bungkus kado","amount":5000}]', NOW(), NOW()),
- ('schema_version', '3', NOW(), NOW());
+ ('sales_channels', '["Toko","WhatsApp","Instagram","Shopee","TikTok Shop"]', NOW(), NOW()),
+ ('size_sets', '["S, M, L, XL","XS, S, M, L, XL, XXL","All size","M, L, XL, XXL, 3XL","27, 28, 29, 30, 31, 32","36, 37, 38, 39, 40"]', NOW(), NOW()),
+ ('return_days', '7', NOW(), NOW()),
+ ('schema_version', '4', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());
