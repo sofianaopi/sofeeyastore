@@ -23,6 +23,10 @@ session_name('SOFEEYAPOS');
 session_set_cookie_params(['lifetime' => 60 * 60 * 24 * 14, 'path' => '/', 'secure' => $secure, 'httponly' => true, 'samesite' => 'Lax']);
 session_start();
 
+// Mode demo (hanya aktif bila config 'demo' => true): tiap pengunjung mendapat database contoh sendiri
+$DEMO = null;
+if (!empty($CONFIG['demo'])) require __DIR__ . '/demo.php';
+
 // ---------------------------------------------------------------- helpers
 class ApiError extends Exception {
     public int $status;
@@ -54,17 +58,24 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 3) return;
+    if ($v >= 4) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+    $now = date('Y-m-d H:i:s');
+    $setDefault = function (string $k, string $val, bool $force = false) use ($pdo, $now) {
+        $st = $pdo->prepare('SELECT id FROM settings WHERE `key` = ?'); $st->execute([$k]);
+        if ($st->fetch()) { if ($force) $pdo->prepare('UPDATE settings SET value = ?, updated = ? WHERE `key` = ?')->execute([$val, $now, $k]); }
+        else $pdo->prepare('INSERT INTO settings (`key`, value, created, updated) VALUES (?,?,?,?)')->execute([$k, $val, $now, $now]);
+    };
+    $addCol = function (string $t, string $c, string $def) use ($pdo) { try { $pdo->exec("ALTER TABLE $t ADD COLUMN $c $def"); } catch (Throwable $e) { /* sudah ada */ } };
+    if ($v < 3) {
     $pdo->exec("CREATE TABLE IF NOT EXISTS shipments (
         id $pk, transaction_id INT NULL, invoice VARCHAR(50) NOT NULL DEFAULT '', courier VARCHAR(60) NOT NULL DEFAULT '',
         recipient VARCHAR(200) NOT NULL DEFAULT '', phone VARCHAR(50) NOT NULL DEFAULT '', address TEXT NULL,
         fee DECIMAL(14,2) NOT NULL DEFAULT 0, resi VARCHAR(100) NOT NULL DEFAULT '', status VARCHAR(20) NOT NULL DEFAULT 'baru',
         note VARCHAR(500) NOT NULL DEFAULT '', cashier VARCHAR(200) NOT NULL DEFAULT '', created DATETIME NULL, updated DATETIME NULL)$tail");
     $presets = json_encode([['label' => 'Ongkir Maxim', 'amount' => 15000], ['label' => 'Ongkir Grab', 'amount' => 20000], ['label' => 'Ongkir J&T', 'amount' => 12000], ['label' => 'Bungkus kado', 'amount' => 5000]]);
-    $now = date('Y-m-d H:i:s');
     // v3: kolom tambahan pengiriman
     $cols = ['provider' => "VARCHAR(20) NOT NULL DEFAULT 'manual'", 'biteship_order_id' => "VARCHAR(60) NOT NULL DEFAULT ''", 'courier_code' => "VARCHAR(30) NOT NULL DEFAULT ''",
         'courier_service' => "VARCHAR(40) NOT NULL DEFAULT ''", 'tracking_id' => "VARCHAR(80) NOT NULL DEFAULT ''", 'tracking_link' => "VARCHAR(500) NOT NULL DEFAULT ''",
@@ -72,12 +83,24 @@ function migrate(PDO $pdo): void {
         'area_name' => "VARCHAR(200) NOT NULL DEFAULT ''", 'postal_code' => "VARCHAR(10) NOT NULL DEFAULT ''", 'lat' => 'DOUBLE NULL', 'lng' => 'DOUBLE NULL',
         'weight' => 'INT NOT NULL DEFAULT 0', 'cost' => 'DECIMAL(14,2) NOT NULL DEFAULT 0'];
     foreach ($cols as $c => $def) { try { $pdo->exec("ALTER TABLE shipments ADD COLUMN $c $def"); } catch (Throwable $e) { /* sudah ada */ } }
-    foreach (['fee_presets' => $presets, 'schema_version' => '3'] as $k => $val) {
-        $st = $pdo->prepare('SELECT id FROM settings WHERE `key` = ?'); $st->execute([$k]);
-        if ($st->fetch()) { $u = $pdo->prepare('UPDATE settings SET value = ?, updated = ? WHERE `key` = ?'); if ($k === 'schema_version') $u->execute([$val, $now, $k]); }
-        else { $pdo->prepare('INSERT INTO settings (`key`, value, created, updated) VALUES (?,?,?,?)')->execute([$k, $val, $now, $now]); }
+    $setDefault('fee_presets', $presets);
     }
+    // v4: toko fashion — varian (model/ukuran/warna), saluran penjualan, retur & tukar
+    $addCol('products', 'model', "VARCHAR(200) NOT NULL DEFAULT ''");
+    $addCol('products', 'size', "VARCHAR(30) NOT NULL DEFAULT ''");
+    $addCol('products', 'color', "VARCHAR(40) NOT NULL DEFAULT ''");
+    $addCol('transactions', 'channel', "VARCHAR(30) NOT NULL DEFAULT 'Toko'");
+    $addCol('transactions', 'return_ref', "VARCHAR(50) NOT NULL DEFAULT ''");
+    $addCol('transactions', 'return_items', 'TEXT NULL');
+    $addCol('transactions', 'return_amount', 'DECIMAL(14,2) NOT NULL DEFAULT 0');
+    $addCol('transactions', 'returned', 'TEXT NULL');
+    $setDefault('sales_channels', json_encode(DEFAULT_CHANNELS));
+    $setDefault('size_sets', json_encode(DEFAULT_SIZE_SETS));
+    $setDefault('return_days', '7');
+    $setDefault('schema_version', '4', true);
 }
+const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
+const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
 function q(string $sql, array $p = []): PDOStatement { $s = db()->prepare($sql); $s->execute($p); return $s; }
 function one(string $sql, array $p = []): ?array { $r = q($sql, $p)->fetch(); return $r === false ? null : $r; }
 function all(string $sql, array $p = []): array { return q($sql, $p)->fetchAll(); }
@@ -134,8 +157,8 @@ function check_perm(string $perm): array {
 // ---------------------------------------------------------------- table schema
 // tipe: s=teks, n=angka, i=bilangan bulat, b=ya/tidak, j=JSON, d=tanggal
 $TABLES = [
-    'products' => ['fields' => ['name' => 's', 'barcode' => 's', 'category' => 's', 'cost' => 'n', 'price' => 'n', 'discount' => 'n', 'stock' => 'i', 'commission' => 'n', 'image' => 's', 'stock_in_date' => 'd'],
-        'required' => ['name'], 'search' => ['name', 'barcode', 'category'], 'read' => 'auth', 'write' => 'admin', 'order' => 'name'],
+    'products' => ['fields' => ['name' => 's', 'barcode' => 's', 'category' => 's', 'cost' => 'n', 'price' => 'n', 'discount' => 'n', 'stock' => 'i', 'commission' => 'n', 'image' => 's', 'stock_in_date' => 'd', 'model' => 's', 'size' => 's', 'color' => 's'],
+        'required' => ['name'], 'search' => ['name', 'barcode', 'category', 'model', 'color'], 'read' => 'auth', 'write' => 'admin', 'order' => 'name'],
     'promos' => ['fields' => ['name' => 's', 'type' => 's', 'value' => 'n', 'min_purchase' => 'n', 'min_price' => 'n', 'max_price' => 'n', 'buy_qty' => 'i', 'free_qty' => 'i', 'free_category' => 's', 'categories' => 'j', 'product_ids' => 'j', 'free_product_ids' => 'j', 'code' => 's', 'stackable' => 'b', 'active' => 'b', 'start_date' => 'd', 'end_date' => 'd', 'badge_text' => 's', 'badge_color' => 's'],
         'required' => ['name', 'type'], 'search' => ['name', 'code'], 'read' => 'auth', 'write' => 'promo', 'order' => 'name'],
     'members' => ['fields' => ['name' => 's', 'phone' => 's', 'email' => 's', 'points' => 'i', 'voucher_amount' => 'n', 'voucher_used' => 'b'],
@@ -148,9 +171,9 @@ $TABLES = [
         'required' => ['title'], 'search' => ['title', 'content'], 'read' => 'auth', 'write' => 'admin', 'order' => '-created'],
     'links' => ['fields' => ['title' => 's', 'url' => 's', 'category' => 's', 'notes' => 's'],
         'required' => ['title', 'url'], 'search' => ['title', 'url', 'category', 'notes'], 'read' => 'auth', 'write' => 'admin', 'order' => 'category'],
-    'transactions' => ['fields' => ['invoice' => 's', 'items' => 'j', 'subtotal' => 'n', 'discount' => 'n', 'fee' => 'n', 'fee_note' => 's', 'total' => 'n', 'payment' => 'n', 'change' => 'n', 'profit' => 'n', 'promo_name' => 's', 'item_count' => 'i', 'member_id' => 'i', 'member_name' => 's', 'points_earned' => 'i', 'points_used' => 'i', 'member_points_after' => 'i', 'cashier' => 's', 'cashier_id' => 'i', 'payment_method' => 's', 'sales_name' => 's', 'sales_code' => 's', 'commission' => 'n', 'note' => 's'],
+    'transactions' => ['fields' => ['invoice' => 's', 'items' => 'j', 'subtotal' => 'n', 'discount' => 'n', 'fee' => 'n', 'fee_note' => 's', 'total' => 'n', 'payment' => 'n', 'change' => 'n', 'profit' => 'n', 'promo_name' => 's', 'item_count' => 'i', 'member_id' => 'i', 'member_name' => 's', 'points_earned' => 'i', 'points_used' => 'i', 'member_points_after' => 'i', 'cashier' => 's', 'cashier_id' => 'i', 'payment_method' => 's', 'sales_name' => 's', 'sales_code' => 's', 'commission' => 'n', 'note' => 's', 'channel' => 's', 'return_ref' => 's', 'return_items' => 'j', 'return_amount' => 'n', 'returned' => 'j'],
         'updatable' => ['sales_name', 'sales_code', 'commission', 'note'],
-        'search' => ['invoice', 'member_name', 'cashier', 'sales_name'], 'read' => 'auth', 'write' => 'admin', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
+        'search' => ['invoice', 'member_name', 'cashier', 'sales_name', 'channel', 'return_ref'], 'read' => 'auth', 'write' => 'admin', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
     'stock_movements' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'type' => 's', 'quantity' => 'i', 'stock_before' => 'i', 'stock_after' => 'i', 'cashier' => 's', 'invoice' => 's', 'note' => 's'],
         'search' => ['product_name', 'barcode', 'invoice', 'note'], 'read' => 'admin', 'write' => 'none', 'delete' => 'admin', 'order' => '-created'],
     'attendance' => ['fields' => ['user_id' => 'i', 'user_name' => 's', 'type' => 's', 'lat' => 'n', 'lng' => 'n', 'ip' => 's', 'is_late' => 'b', 'late_minutes' => 'i'],
@@ -273,6 +296,7 @@ function crud_create(array $in): array {
         check_perm($perm);
     }
     $vals = pick_fields($t, $data);
+    if ($t === 'products' && trim((string)($vals['barcode'] ?? '')) === '' && !empty($in['auto_barcode'])) $vals['barcode'] = gen_barcode();
     foreach ($def['required'] ?? [] as $r) if (($vals[$r] ?? '') === '') fail("Kolom '$r' wajib diisi.");
     validate_row($t, $vals, null);
     $id = insert_row($t, $vals);
@@ -331,11 +355,146 @@ function validate_row(string $t, array &$vals, ?int $id): void {
 
 // ---------------------------------------------------------------- business actions
 function public_settings(): array {
-    $keys = ['store_name', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'fee_presets', 'qris_payload'];
+    $keys = ['store_name', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days'];
     $out = [];
     foreach (all('SELECT `key`, value FROM settings') as $r) if (in_array($r['key'], $keys, true)) $out[$r['key']] = $r['value'];
     $out['store_name'] = $out['store_name'] ?? 'Sofeeya Store';
     return $out;
+}
+
+// Barcode internal toko (EAN-13 berawalan 2 = khusus pemakaian di toko)
+function gen_barcode(): string {
+    for ($i = 0; $i < 20; $i++) {
+        $d = '2' . str_pad((string)random_int(0, 99999999999), 11, '0', STR_PAD_LEFT);
+        $sum = 0; for ($k = 0; $k < 12; $k++) $sum += (int)$d[$k] * ($k % 2 ? 3 : 1);
+        $code = $d . ((10 - $sum % 10) % 10);
+        if (!one('SELECT id FROM products WHERE barcode = ?', [$code])) return $code;
+    }
+    return 'SF' . date('ymdHis') . random_int(10, 99);
+}
+function variant_name(string $model, string $color, string $size): string {
+    $v = trim(implode(' / ', array_filter([trim($color), trim($size)], fn($x) => $x !== '')));
+    return $v === '' ? $model : $model . ' - ' . $v;
+}
+function clean_list($v, int $max = 30, int $len = 40): array {
+    if (is_string($v)) $v = preg_split('/\s*,\s*/', $v);
+    $out = [];
+    foreach ((array)$v as $x) { $x = trim(mb_substr((string)$x, 0, $len)); if ($x !== '' && !in_array(mb_strtolower($x), array_map('mb_strtolower', $out), true)) $out[] = $x; }
+    return array_slice($out, 0, $max);
+}
+// Simpan satu model dengan banyak varian (warna × ukuran). Varian yang sudah ada diperbarui.
+function variants_save(array $in): array {
+    if (!is_admin()) {
+        need_auth();
+        if ((string)($in['pin'] ?? '') === '' || !hash_equals((string)setting('supervisor_pin', '1234'), (string)$in['pin'])) fail('PIN admin salah. Menambah barang hanya oleh admin atau dengan PIN admin.', 403);
+    }
+    $model = trim(mb_substr((string)($in['model'] ?? ''), 0, 200));
+    if ($model === '') fail('Nama model wajib diisi.');
+    $price = max(0, (float)($in['price'] ?? 0));
+    if ($price <= 0) fail('Harga jual wajib diisi.');
+    $colors = clean_list($in['colors'] ?? []); $sizes = clean_list($in['sizes'] ?? [], 30, 30);
+    if (!$colors) $colors = [''];
+    if (!$sizes) $sizes = [''];
+    if (count($colors) * count($sizes) > 200) fail('Maksimal 200 varian per model.');
+    $stocks = (array)($in['stocks'] ?? []); $barcodes = (array)($in['barcodes'] ?? []);
+    $base = ['category' => trim(mb_substr((string)($in['category'] ?? ''), 0, 100)), 'cost' => max(0, (float)($in['cost'] ?? 0)), 'price' => $price,
+             'discount' => max(0, (float)($in['discount'] ?? 0)), 'commission' => max(0, (float)($in['commission'] ?? 0))];
+    $created = []; $updated = 0;
+    $imgRow = one("SELECT image FROM products WHERE model = ? AND image <> '' LIMIT 1", [$model]);
+    $img = $imgRow ? (string)$imgRow['image'] : '';
+    db()->beginTransaction();
+    try {
+        foreach ($colors as $c) foreach ($sizes as $z) {
+            $key = $c . '|' . $z;
+            $ex = one('SELECT * FROM products WHERE model = ? AND color = ? AND size = ?', [$model, $c, $z]);
+            if ($ex) { update_row('products', (int)$ex['id'], $base + ['name' => variant_name($model, $c, $z)]); $updated++; continue; }
+            $stock = max(0, (int)($stocks[$key] ?? 0));
+            $bc = trim((string)($barcodes[$key] ?? ''));
+            if ($bc !== '' && one('SELECT id FROM products WHERE barcode = ?', [$bc])) fail('Barcode ' . $bc . ' sudah dipakai barang lain.');
+            if ($bc === '') $bc = gen_barcode();
+            $id = insert_row('products', $base + ['name' => variant_name($model, $c, $z), 'model' => $model, 'color' => $c, 'size' => $z, 'barcode' => $bc,
+                'stock' => $stock, 'image' => $img, 'stock_in_date' => $stock > 0 ? date('Y-m-d') : null]);
+            if ($stock > 0) log_movement(['id' => $id, 'name' => variant_name($model, $c, $z), 'barcode' => $bc], 'in', $stock, 0, $stock, 'Stok awal');
+            $created[] = $id;
+        }
+        db()->commit();
+    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
+    return ['created' => count($created), 'updated' => $updated, 'items' => array_map(fn($r) => cast_row('products', $r), all('SELECT * FROM products WHERE model = ? ORDER BY id', [$model]))];
+}
+// Ubah data semua varian dalam satu model sekaligus (nama model, kategori, harga, dll.)
+function model_update(array $in): array {
+    need_admin();
+    $model = (string)($in['model'] ?? '');
+    $rows = all('SELECT * FROM products WHERE model = ?', [$model]);
+    if (!$rows || $model === '') fail('Model tidak ditemukan.');
+    $d = (array)($in['data'] ?? []);
+    $vals = [];
+    foreach (['category' => 's', 'cost' => 'n', 'price' => 'n', 'discount' => 'n', 'commission' => 'n'] as $f => $t) if (array_key_exists($f, $d)) $vals[$f] = $t === 'n' ? max(0, (float)$d[$f]) : trim((string)$d[$f]);
+    $new = array_key_exists('model', $d) ? trim(mb_substr((string)$d['model'], 0, 200)) : $model;
+    if ($new === '') fail('Nama model wajib diisi.');
+    db()->beginTransaction();
+    foreach ($rows as $r) update_row('products', (int)$r['id'], $vals + ['model' => $new, 'name' => variant_name($new, $r['color'], $r['size'])]);
+    db()->commit();
+    return ['updated' => count($rows)];
+}
+// Atur stok banyak barang sekaligus (matriks stok). Selisih tercatat di riwayat stok.
+function stock_set_bulk(array $in): array {
+    need_admin();
+    $note = trim(mb_substr((string)($in['note'] ?? ''), 0, 200));
+    $n = 0;
+    db()->beginTransaction();
+    foreach ((array)($in['items'] ?? []) as $it) {
+        $p = one('SELECT * FROM products WHERE id = ?', [(int)($it['id'] ?? 0)]);
+        if (!$p) continue;
+        $new = max(0, (int)($it['stock'] ?? 0)); $old = (int)$p['stock'];
+        if ($new === $old) continue;
+        $vals = ['stock' => $new]; if ($new > $old) $vals['stock_in_date'] = date('Y-m-d');
+        update_row('products', (int)$p['id'], $vals);
+        log_movement($p, $new > $old ? 'in' : 'out', abs($new - $old), $old, $new, $note ?: ($new > $old ? 'Stok masuk (matriks)' : 'Koreksi stok (matriks)'));
+        $n++;
+    }
+    db()->commit();
+    return ['changed' => $n];
+}
+// Foto produk: disimpan sebagai file JPG di folder uploads/produk
+function product_image(array $in): array {
+    global $CONFIG;
+    need_admin();
+    if (!empty($CONFIG['demo'])) fail('Upload foto tidak tersedia di versi demo.', 403);
+    $ids = array_values(array_filter(array_map('intval', (array)($in['ids'] ?? []))));
+    if (!$ids) fail('Pilih barang.');
+    $url = '';
+    if (empty($in['remove'])) {
+        $data = (string)($in['data'] ?? '');
+        if (!preg_match('~^data:image/(jpeg|png|webp);base64,~', $data, $m)) fail('Format foto tidak didukung. Gunakan JPG/PNG.');
+        $bin = base64_decode(substr($data, strpos($data, ',') + 1), true);
+        if ($bin === false || strlen($bin) > 1500000) fail('Ukuran foto terlalu besar (maks. 1,5 MB).');
+        $info = @getimagesizefromstring($bin);
+        if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) fail('File bukan gambar yang valid.');
+        $dir = dirname(__DIR__) . '/uploads/produk';
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true)) fail('Folder uploads/produk tidak dapat dibuat. Periksa izin folder.', 500);
+        $name = bin2hex(random_bytes(10)) . '.jpg';
+        $ok = false;
+        if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) {
+            $im = @imagecreatefromstring($bin);
+            if ($im) {
+                $w = imagesx($im); $h = imagesy($im); $max = 800;
+                if ($w > $max || $h > $max) { $k = $max / max($w, $h); $nw = (int)round($w * $k); $nh = (int)round($h * $k); $dst = imagecreatetruecolor($nw, $nh); imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255)); imagecopyresampled($dst, $im, 0, 0, 0, 0, $nw, $nh, $w, $h); imagedestroy($im); $im = $dst; }
+                else { $bg = imagecreatetruecolor($w, $h); imagefill($bg, 0, 0, imagecolorallocate($bg, 255, 255, 255)); imagecopy($bg, $im, 0, 0, 0, 0, $w, $h); imagedestroy($im); $im = $bg; }
+                $ok = imagejpeg($im, $dir . '/' . $name, 82); imagedestroy($im);
+            }
+        }
+        if (!$ok) { if ($info[2] !== IMAGETYPE_JPEG) fail('Server tidak dapat mengolah foto PNG. Gunakan JPG.'); $ok = (bool)file_put_contents($dir . '/' . $name, $bin); }
+        if (!$ok) fail('Gagal menyimpan foto.', 500);
+        $url = 'uploads/produk/' . $name;
+    }
+    $old = [];
+    foreach ($ids as $id) { $r = one('SELECT image FROM products WHERE id = ?', [$id]); if ($r && $r['image']) $old[] = $r['image']; q('UPDATE products SET image = ?, updated = ? WHERE id = ?', [$url, now(), $id]); }
+    // hapus file lama yang sudah tidak dipakai
+    foreach (array_unique($old) as $f) {
+        if (strpos($f, 'uploads/produk/') === 0 && !one('SELECT id FROM products WHERE image = ? LIMIT 1', [$f])) @unlink(dirname(__DIR__) . '/' . $f);
+    }
+    return ['image' => $url];
 }
 
 function gen_invoice(): string {
@@ -349,7 +508,8 @@ function gen_invoice(): string {
 function checkout(array $in): array {
     $u = need_auth();
     $cart = (array)($in['items'] ?? []);
-    if (!$cart) fail('Keranjang kosong.');
+    $ret = !empty($in['retur']) && is_array($in['retur']) ? $in['retur'] : null;
+    if (!$cart && !$ret) fail('Keranjang kosong.');
     db()->beginTransaction();
     try {
         $items = []; $subtotal = 0; $gross = 0; $commissionBase = 0; $count = 0; $shortages = [];
@@ -366,6 +526,7 @@ function checkout(array $in): array {
             $count += $qty;
             $items[] = [
                 'id' => (int)$p['id'], 'name' => $p['name'], 'barcode' => $p['barcode'], 'category' => $p['category'],
+                'model' => (string)($p['model'] ?? ''), 'size' => (string)($p['size'] ?? ''), 'color' => (string)($p['color'] ?? ''),
                 'qty' => $qty, 'price' => $price, 'original_price' => (float)$p['price'], 'cost' => $cost,
                 'commission' => (float)$p['commission'], 'discount' => (float)($c['discount'] ?? 0),
                 'itemDiscount' => max(0, (float)($c['itemDiscount'] ?? 0)), 'promoName' => (string)($c['promoName'] ?? ''),
@@ -373,13 +534,42 @@ function checkout(array $in): array {
         }
         if ($shortages) fail('Stok tidak cukup: ' . implode(', ', $shortages));
 
+        // retur / tukar barang dari transaksi sebelumnya
+        $retItems = []; $retAmount = 0; $retProfit = 0; $orig = null;
+        if ($ret) {
+            $orig = one('SELECT * FROM transactions WHERE invoice = ?', [trim((string)($ret['invoice'] ?? ''))]);
+            if (!$orig) fail('Transaksi asal retur tidak ditemukan.');
+            $orig = cast_row('transactions', $orig);
+            $already = []; foreach ((array)$orig['returned'] as $r) $already[(int)$r['id']] = ($already[(int)$r['id']] ?? 0) + (int)$r['qty'];
+            foreach ((array)($ret['items'] ?? []) as $r) {
+                $qty = max(0, (int)($r['qty'] ?? 0)); if (!$qty) continue;
+                $src = null; foreach ((array)$orig['items'] as $oi) if ((int)$oi['id'] === (int)($r['id'] ?? 0)) { $src = $oi; break; }
+                if (!$src) fail('Barang retur tidak ada di transaksi ' . $orig['invoice'] . '.');
+                $left = (int)$src['qty'] - ($already[(int)$src['id']] ?? 0);
+                if ($qty > $left) fail('Jumlah retur ' . $src['name'] . ' melebihi sisa yang dibeli (' . $left . ').');
+                $unit = round(((float)$src['price'] * (int)$src['qty'] - (float)($src['itemDiscount'] ?? 0)) / max(1, (int)$src['qty']));
+                $retAmount += $unit * $qty; $retProfit += ($unit - (float)$src['cost']) * $qty;
+                $retItems[] = ['id' => (int)$src['id'], 'name' => $src['name'], 'qty' => $qty, 'price' => $unit, 'cost' => (float)$src['cost'],
+                               'size' => (string)($src['size'] ?? ''), 'color' => (string)($src['color'] ?? ''), 'model' => (string)($src['model'] ?? ''), 'category' => (string)($src['category'] ?? '')];
+                $already[(int)$src['id']] = ($already[(int)$src['id']] ?? 0) + $qty;
+            }
+            if (!$retItems) fail('Pilih barang yang diretur.');
+        }
+
         $discount = min($subtotal, max(0, (float)($in['discount'] ?? 0)));
         $fee = max(0, (float)($in['fee'] ?? 0));
-        $total = max(0, $subtotal - $discount + $fee);
+        $total = $subtotal - $discount + $fee - $retAmount;
+        if (!$ret) $total = max(0, $total);
         $payment = (float)($in['payment'] ?? 0);
-        $method = in_array($in['payment_method'] ?? 'cash', ['cash', 'qris', 'transfer'], true) ? $in['payment_method'] : 'cash';
-        if ($method !== 'cash') $payment = max($payment, $total);
-        if ($payment + 0.001 < $total) fail('Pembayaran kurang dari total.');
+        $pm = (string)($in['payment_method'] ?? 'cash'); $method = in_array($pm, ['cash', 'qris', 'transfer'], true) ? $pm : 'cash';
+        if ($total <= 0) { $payment = 0; }
+        else {
+            if ($method !== 'cash') $payment = max($payment, $total);
+            if ($payment + 0.001 < $total) fail('Pembayaran kurang dari total.');
+        }
+        $channels = json_decode((string)setting('sales_channels', ''), true) ?: DEFAULT_CHANNELS;
+        $channel = trim(mb_substr((string)($in['channel'] ?? 'Toko'), 0, 30));
+        if (!in_array($channel, $channels, true)) $channel = $channels[0] ?? 'Toko';
 
         // member & poin
         $member = null; $earned = 0; $used = 0; $after = 0;
@@ -387,7 +577,7 @@ function checkout(array $in): array {
             $member = one('SELECT * FROM members WHERE id = ?', [(int)$in['member_id']]);
             if (!$member) fail('Member tidak ditemukan.');
             $rate = max(1, (float)setting('points_per_amount', '1000'));
-            $earned = (int)floor($total / $rate);
+            $earned = (int)floor(max(0, $total) / $rate);
             if (!empty($in['reward_id'])) {
                 $rw = one('SELECT * FROM point_rewards WHERE id = ? AND active = 1', [(int)$in['reward_id']]);
                 if (!$rw) fail('Reward poin tidak valid.');
@@ -411,14 +601,28 @@ function checkout(array $in): array {
         $id = insert_row('transactions', [
             'invoice' => $invoice, 'items' => json_encode($items, JSON_UNESCAPED_UNICODE),
             'subtotal' => $subtotal, 'discount' => $discount, 'fee' => $fee, 'fee_note' => mb_substr((string)($in['fee_note'] ?? ''), 0, 500),
-            'total' => $total, 'payment' => $payment, 'change' => max(0, $payment - $total), 'profit' => $gross - $discount + 0,
+            'total' => $total, 'payment' => $payment, 'change' => $total > 0 ? max(0, $payment - $total) : 0, 'profit' => $gross - $discount - $retProfit,
             'promo_name' => mb_substr((string)($in['promo_name'] ?? ''), 0, 500), 'item_count' => $count,
             'member_id' => $member ? (int)$member['id'] : null, 'member_name' => $member['name'] ?? '',
             'points_earned' => $earned, 'points_used' => $used, 'member_points_after' => $member ? $after : 0,
             'cashier' => $u['name'], 'cashier_id' => $u['id'], 'payment_method' => $method,
             'sales_name' => $sales['name'] ?? '', 'sales_code' => $sales['code'] ?? '', 'commission' => $sales ? $commissionBase : 0,
             'note' => mb_substr(trim((string)($in['note'] ?? '')), 0, 1000),
+            'channel' => $channel, 'return_ref' => $orig['invoice'] ?? '', 'return_items' => json_encode($retItems, JSON_UNESCAPED_UNICODE), 'return_amount' => $retAmount,
+            'returned' => '[]',
         ]);
+        if ($orig) {
+            $list = (array)$orig['returned'];
+            foreach ($retItems as $r) $list[] = ['id' => $r['id'], 'qty' => $r['qty'], 'by' => $invoice];
+            q('UPDATE transactions SET returned = ?, updated = ? WHERE id = ?', [json_encode($list, JSON_UNESCAPED_UNICODE), now(), $orig['id']]);
+            foreach ($retItems as $r) {
+                $p = one('SELECT * FROM products WHERE id = ?', [$r['id']]);
+                if (!$p) continue;
+                $before = (int)$p['stock']; $after = $before + $r['qty'];
+                q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]);
+                log_movement($p, 'in', $r['qty'], $before, $after, 'Retur dari ' . $orig['invoice'], $invoice);
+            }
+        }
         if (!empty($in['shipping']) && is_array($in['shipping'])) {
             $sh = $in['shipping'];
             if (trim((string)($sh['courier'] ?? '')) === '') fail('Pilih kurir pengiriman.');
@@ -453,6 +657,17 @@ function tx_delete(array $in): array {
     $reason = trim((string)($in['reason'] ?? ''));
     db()->beginTransaction();
     try {
+        // transaksi ini meretur barang lain: kembalikan catatan retur & stoknya
+        if (!empty($tx['return_ref'])) {
+            $o = one('SELECT * FROM transactions WHERE invoice = ?', [$tx['return_ref']]);
+            if ($o) { $o = cast_row('transactions', $o); q('UPDATE transactions SET returned = ?, updated = ? WHERE id = ?', [json_encode(array_values(array_filter((array)$o['returned'], fn($r) => ($r['by'] ?? '') !== $tx['invoice'])), JSON_UNESCAPED_UNICODE), now(), $o['id']]); }
+            if (!empty($in['restore_stock'])) foreach ((array)$tx['return_items'] as $it) {
+                $p = one('SELECT * FROM products WHERE id = ?', [(int)$it['id']]); if (!$p) continue;
+                $before = (int)$p['stock']; $after = max(0, $before - (int)$it['qty']);
+                q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]);
+                log_movement($p, 'out', (int)$it['qty'], $before, $after, 'Batal retur ' . $tx['invoice'], $tx['invoice']);
+            }
+        }
         if (!empty($in['restore_stock'])) {
             foreach ($tx['items'] as $it) {
                 $p = one('SELECT * FROM products WHERE id = ?', [(int)$it['id']]);
@@ -499,8 +714,11 @@ function product_import(array $in): array {
     db()->beginTransaction();
     foreach ($rows as $i => $r) {
         $name = trim((string)($r['name'] ?? '')); $barcode = trim((string)($r['barcode'] ?? ''));
+        $model = trim((string)($r['model'] ?? '')); $color = trim((string)($r['color'] ?? '')); $size = trim((string)($r['size'] ?? ''));
+        if ($model !== '') { $name = variant_name($model, $color, $size); $r['name'] = $name; }
         $existing = null;
         if ($barcode !== '') $existing = one('SELECT * FROM products WHERE barcode = ?', [$barcode]);
+        if (!$existing && $model !== '') $existing = one('SELECT * FROM products WHERE model = ? AND color = ? AND size = ?', [$model, $color, $size]);
         if (!$existing && $name !== '') $existing = one('SELECT * FROM products WHERE LOWER(name) = LOWER(?)', [$name]);
         if ($mode === 'discount') {
             if (!$existing) { $skipped++; continue; }
@@ -520,8 +738,9 @@ function product_import(array $in): array {
             }
             $updated++;
         } else {
+            if (trim((string)($vals['barcode'] ?? '')) === '') $vals['barcode'] = gen_barcode();
             $id = insert_row('products', $vals);
-            if (($vals['stock'] ?? 0) > 0) log_movement(['id' => $id, 'name' => $name, 'barcode' => $barcode], 'in', (int)$vals['stock'], 0, (int)$vals['stock'], 'Impor file');
+            if (($vals['stock'] ?? 0) > 0) log_movement(['id' => $id, 'name' => $name, 'barcode' => $vals['barcode']], 'in', (int)$vals['stock'], 0, (int)$vals['stock'], 'Impor file');
             $created++;
         }
     }
@@ -703,7 +922,7 @@ try {
             break;
         }
         case 'logout': $_SESSION = []; session_destroy(); $out = ['ok' => true]; break;
-        case 'boot': $out = ['user' => current_user(), 'settings' => public_settings()]; break;
+        case 'boot': $out = ['user' => current_user(), 'settings' => public_settings(), 'demo' => $DEMO]; break;
         case 'change_password': {
             $u = need_auth();
             $r = one('SELECT * FROM users WHERE id = ?', [$u['id']]);
@@ -732,7 +951,7 @@ try {
         }
         case 'settings_save': {
             need_admin();
-            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload'];
+            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days'];
             if (isset($in['values']['qris_payload'])) { $qp = trim((string)$in['values']['qris_payload']); if ($qp !== '' && (strpos($qp, '000201') !== 0 || strlen($qp) > 1000)) fail('Kode QRIS tidak valid.'); $in['values']['qris_payload'] = $qp; }
 
             foreach ((array)($in['values'] ?? []) as $k => $v) if (in_array($k, $allowed, true)) set_setting($k, $v);
@@ -746,6 +965,10 @@ try {
         case 'checkout': $out = checkout($in); break;
         case 'tx_delete': $out = tx_delete($in); break;
         case 'stock_adjust': $out = stock_adjust($in); break;
+        case 'variants_save': $out = variants_save($in); break;
+        case 'model_update': $out = model_update($in); break;
+        case 'stock_set_bulk': $out = stock_set_bulk($in); break;
+        case 'product_image': $out = product_image($in); break;
         case 'product_import': $out = product_import($in); break;
         case 'member_import': $out = member_import($in); break;
         case 'users_list': $out = users_action('list', $in); break;
