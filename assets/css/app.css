@@ -387,3 +387,6 @@ body.d-phone.o-land .cats{padding-bottom:6px}
 body.d-phone.o-land .cats button{height:32px}
 body.d-phone.o-land .rc-h .row.wrap{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-top:6px!important}
 body.d-phone.o-land .rc-h .row.wrap::-webkit-scrollbar{display:none}
+/* ikon kecil di dalam tabel & tautan */
+.tbl td svg,.tbl td a svg{width:14px;height:14px;vertical-align:-2px}
+.tbl td a{white-space:nowrap}

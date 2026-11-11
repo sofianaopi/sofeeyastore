@@ -86,6 +86,7 @@ async function api(action, body = {}) {
   let json;
   try { json = await res.json(); } catch (e) { throw new Error('Respons server tidak valid (' + res.status + '). Pastikan PHP aktif dan api/config.php benar.'); }
   if (!json.ok) {
+    if (json.demo && window.onDemoGate) { window.onDemoGate(json.demo, json.demo_info); }
     const err = new Error(json.error || 'Terjadi kesalahan.'); err.status = res.status;
     if (res.status === 401 && window.onSessionExpired) window.onSessionExpired();
     throw err;

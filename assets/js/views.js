@@ -120,35 +120,65 @@ function delta(cur, prev) {
 //  DASHBOARD
 // =====================================================================
 V.dashboard = async (page) => {
-  const today = new Date();
-  const from = ymd(addDays(today, -29));
-  const [txs, products] = await Promise.all([db.list('transactions', { from, to: ymd(today), order: 'created' }), db.list('products')]);
-  const byDay = {}; txs.forEach((t) => { const d = t.created.slice(0, 10); (byDay[d] = byDay[d] || []).push(t); });
-  const T = sumTx(byDay[ymd(today)] || []), Y = sumTx(byDay[ymd(addDays(today, -1))] || []);
-  const M = sumTx(txs.filter((t) => t.created.slice(0, 7) === ymd(today).slice(0, 7)));
-  const days = [...Array(14)].map((_, i) => ymd(addDays(today, i - 13)));
-  const vals = days.map((d) => sumTx(byDay[d] || []).omzet); const max = Math.max(1, ...vals);
-  const prod = {}; txs.forEach((t) => (t.items || []).forEach((i) => { const p = (prod[i.name] = prod[i.name] || { qty: 0, omzet: 0 }); p.qty += i.qty; p.omzet += i.price * i.qty - (i.itemDiscount || 0); }));
-  const top = Object.entries(prod).sort((a, b) => b[1].qty - a[1].qty).slice(0, 8); const topMax = top.length ? top[0][1].qty : 1;
-  const low = products.filter((p) => p.stock <= 3).sort((a, b) => a.stock - b.stock).slice(0, 10);
-  const meth = { cash: 0, qris: 0, transfer: 0 }; txs.filter((t) => t.created.slice(0, 7) === ymd(today).slice(0, 7)).forEach((t) => { meth[t.payment_method] = (meth[t.payment_method] || 0) + t.total; });
-  const stockValue = products.reduce((s, p) => s + p.cost * Math.max(0, p.stock), 0);
-  page.innerHTML = head('Dashboard', 'Ringkasan penjualan ' + today.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), '<a class="btn primary" href="#kasir">' + icon('kasir') + 'Buka kasir</a>') + `
-    <div class="stats">
-      ${stat('Omzet hari ini', rupiah(T.omzet), delta(T.omzet, Y.omzet).replace(/class="(money|danger|muted)"/g, 'style="color:#fff;opacity:.9"'), 'hero')}
-      ${stat('Laba hari ini', rupiah(T.laba), delta(T.laba, Y.laba))}
-      ${stat('Transaksi hari ini', fmtNum(T.n), `${fmtNum(T.items)} barang terjual`)}
-      ${stat('Omzet bulan ini', rupiah(M.omzet), `Laba ${rupiah(M.laba)} · ${fmtNum(M.n)} transaksi`)}
-      ${stat('Nilai stok (harga beli)', rupiah(stockValue), `${fmtNum(products.length)} jenis barang`)}
-    </div>
-    <div class="grid2" style="grid-template-columns:1.4fr 1fr">
-      <div class="panel"><div class="panel-h"><h3>Omzet 14 hari terakhir</h3><span class="small muted">Tertinggi ${rupiah(max === 1 ? 0 : max)}</span></div><div class="panel-b"><div class="bars">${days.map((d, i) => `<div class="b" title="${fmtDate(d)}: ${rupiah(vals[i])}"><i class="${d === ymd(today) ? 'today' : ''}" style="height:${(vals[i] / max) * 100}%"></i><span>${+d.slice(8)}</span></div>`).join('')}</div></div></div>
-      <div class="panel"><div class="panel-h"><h3>Barang terlaris (30 hari)</h3></div><div class="panel-b">${top.length ? top.map(([n, v]) => `<div class="hbar"><span class="t" title="${esc(n)}">${esc(n)}</span><span class="track"><i style="width:${(v.qty / topMax) * 100}%"></i></span><span class="n">${fmtNum(v.qty)} pcs</span></div>`).join('') : emptyState('Belum ada penjualan.')}</div></div>
-    </div>
-    <div class="grid2" style="margin-top:12px">
-      <div class="panel"><div class="panel-h"><h3>Stok menipis</h3><a href="#produk" class="small bold">Kelola stok</a></div>${low.length ? table([{ label: 'Barang', key: 'name' }, { label: 'Kategori', key: 'category' }, { label: 'Stok', num: true, html: (p) => `<span class="chip ${p.stock <= 0 ? 'red' : 'amber'}">${p.stock}</span>` }], low) : '<div class="panel-b muted">Semua stok aman.</div>'}</div>
-      <div class="panel"><div class="panel-h"><h3>Metode bayar bulan ini</h3></div><div class="panel-b">${Object.entries(meth).map(([k, v]) => `<div class="hbar"><span class="t">${PAY[k] || k}</span><span class="track"><i style="width:${M.omzet ? (v / M.omzet) * 100 : 0}%"></i></span><span class="n">${rupiah(v)}</span></div>`).join('')}</div></div>
-    </div>`;
+  const MODES = { hari: { label: 'Hari', n: 14, cur: 'Hari ini', prev: 'kemarin' }, minggu: { label: 'Minggu', n: 12, cur: 'Minggu ini', prev: 'minggu lalu' }, bulan: { label: 'Bulan', n: 12, cur: 'Bulan ini', prev: 'bulan lalu' }, tahun: { label: 'Tahun', n: 5, cur: 'Tahun ini', prev: 'tahun lalu' } };
+  const BULAN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  let mode = 'hari'; try { mode = localStorage.getItem('dash-mode') || 'hari'; } catch (e) { /* abaikan */ }
+  if (!MODES[mode]) mode = 'hari';
+  const products = await db.list('products');
+  const cache = {};
+  // awal periode (bucket) untuk sebuah tanggal
+  const startOf = (d, m) => {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    if (m === 'minggu') { const wd = (x.getDay() + 6) % 7; x.setDate(x.getDate() - wd); }
+    if (m === 'bulan') x.setDate(1);
+    if (m === 'tahun') { x.setMonth(0); x.setDate(1); }
+    return x;
+  };
+  const step = (d, m, k) => { const x = new Date(d); if (m === 'hari') x.setDate(x.getDate() + k); if (m === 'minggu') x.setDate(x.getDate() + 7 * k); if (m === 'bulan') x.setMonth(x.getMonth() + k); if (m === 'tahun') x.setFullYear(x.getFullYear() + k); return x; };
+  const label = (d, m) => (m === 'hari' ? String(d.getDate()) : m === 'minggu' ? `${d.getDate()}/${d.getMonth() + 1}` : m === 'bulan' ? BULAN[d.getMonth()] : String(d.getFullYear()));
+  const longLabel = (d, m) => (m === 'hari' ? fmtDate(ymd(d)) : m === 'minggu' ? `Minggu ${fmtDate(ymd(d))}` : m === 'bulan' ? `${BULAN[d.getMonth()]} ${d.getFullYear()}` : String(d.getFullYear()));
+  async function load(m) {
+    const now = new Date(); const first = step(startOf(now, m), m, -(MODES[m].n - 1));
+    if (!cache[m]) cache[m] = await db.list('transactions', { from: ymd(first), to: ymd(now), order: 'created', limit: 20000 });
+    const buckets = []; for (let i = 0; i < MODES[m].n; i++) { const st = step(first, m, i); buckets.push({ start: st, key: ymd(st), tx: [] }); }
+    const idx = Object.fromEntries(buckets.map((b, i) => [b.key, i]));
+    cache[m].forEach((t) => { const k = ymd(startOf(parseDT(t.created), m)); if (idx[k] !== undefined) buckets[idx[k]].tx.push(t); });
+    return buckets;
+  }
+  async function draw() {
+    const body = $('[data-dash]', page); body.style.opacity = '.5';
+    const B = await load(mode); body.style.opacity = '1';
+    const cur = B[B.length - 1], prev = B[B.length - 2];
+    const C = sumTx(cur.tx), P = sumTx(prev ? prev.tx : []), M = MODES[mode];
+    const all = B.flatMap((b) => b.tx), A = sumTx(all);
+    const vals = B.map((b) => sumTx(b.tx).omzet), max = Math.max(1, ...vals);
+    const prod = {}; cur.tx.forEach((t) => (t.items || []).forEach((i) => { const p = (prod[i.name] = prod[i.name] || { qty: 0 }); p.qty += i.qty; }));
+    const top = Object.entries(prod).sort((a, b) => b[1].qty - a[1].qty).slice(0, 7), topMax = top.length ? top[0][1].qty : 1;
+    const meth = { cash: 0, qris: 0, transfer: 0 }; cur.tx.forEach((t) => { meth[t.payment_method] = (meth[t.payment_method] || 0) + t.total; });
+    const low = products.filter((p) => p.stock <= 3).sort((a, b) => a.stock - b.stock).slice(0, 8);
+    const stockValue = products.reduce((s, p) => s + p.cost * Math.max(0, p.stock), 0);
+    const cmp = (c, p) => { if (!p) return c ? '<span class="money">baru</span>' : '<span class="muted">—</span>'; const x = Math.round(((c - p) / p) * 100); return `<span class="${x >= 0 ? 'money' : 'danger'}">${x >= 0 ? '▲' : '▼'} ${Math.abs(x)}%</span> <span class="muted">vs ${M.prev}</span>`; };
+    body.innerHTML = `
+      <div class="stats">
+        ${stat('Omzet ' + M.cur.toLowerCase(), rupiah(C.omzet), cmp(C.omzet, P.omzet).replace(/class="(money|danger|muted)"/g, 'style="color:#fff;opacity:.9"'), 'hero')}
+        ${stat('Laba ' + M.cur.toLowerCase(), rupiah(C.laba), cmp(C.laba, P.laba))}
+        ${stat('Transaksi', fmtNum(C.n), `${fmtNum(C.items)} barang · ${cmp(C.n, P.n)}`)}
+        ${stat('Rata-rata belanja', rupiah(C.n ? C.omzet / C.n : 0), 'per transaksi')}
+        ${stat('Nilai stok (modal)', rupiah(stockValue), `${fmtNum(products.length)} jenis barang`)}
+      </div>
+      <div class="grid2" style="grid-template-columns:1.4fr 1fr">
+        <div class="panel"><div class="panel-h"><h3>Omzet per ${M.label.toLowerCase()} · ${M.n} ${M.label.toLowerCase()} terakhir</h3><span class="small muted">Total ${rupiah(A.omzet)} · laba ${rupiah(A.laba)}</span></div><div class="panel-b"><div class="bars">${B.map((b, i) => `<div class="b" title="${esc(longLabel(b.start, mode))}: ${rupiah(vals[i])}"><i class="${i === B.length - 1 ? 'today' : ''}" style="height:${(vals[i] / max) * 100}%"></i><span>${label(b.start, mode)}</span></div>`).join('')}</div></div></div>
+        <div class="panel"><div class="panel-h"><h3>Terlaris ${M.cur.toLowerCase()}</h3></div><div class="panel-b">${top.length ? top.map(([n, v]) => `<div class="hbar"><span class="t" title="${esc(n)}">${esc(n)}</span><span class="track"><i style="width:${(v.qty / topMax) * 100}%"></i></span><span class="n">${fmtNum(v.qty)} pcs</span></div>`).join('') : emptyState('Belum ada penjualan.')}</div></div>
+      </div>
+      <div class="grid2" style="margin-top:12px">
+        <div class="panel"><div class="panel-h"><h3>Stok menipis</h3><a href="#produk" class="small bold">Kelola stok</a></div>${low.length ? table([{ label: 'Barang', key: 'name' }, { label: 'Kategori', key: 'category' }, { label: 'Stok', num: true, html: (p) => `<span class="chip ${p.stock <= 0 ? 'red' : 'amber'}">${p.stock}</span>` }], low) : '<div class="panel-b muted">Semua stok aman.</div>'}</div>
+        <div class="panel"><div class="panel-h"><h3>Metode bayar ${M.cur.toLowerCase()}</h3></div><div class="panel-b">${Object.entries(meth).map(([k, v]) => `<div class="hbar"><span class="t">${PAY[k] || k}</span><span class="track"><i style="width:${C.omzet ? (v / C.omzet) * 100 : 0}%"></i></span><span class="n">${rupiah(v)}</span></div>`).join('')}</div></div>
+      </div>`;
+  }
+  page.innerHTML = head('Dashboard', 'Analisa penjualan per hari, minggu, bulan, dan tahun.', '<a class="btn primary" href="#kasir">' + icon('kasir') + 'Buka kasir</a>') +
+    `<div style="margin-bottom:14px">${tabs(Object.entries(MODES).map(([k, v]) => [k, v.label]), mode)}</div><div data-dash></div>`;
+  bindTabs(page, (m) => { mode = m; try { localStorage.setItem('dash-mode', m); } catch (e) { /* abaikan */ } draw(); });
+  await draw();
 };
 
 // =====================================================================
@@ -249,7 +279,7 @@ V.laporan = async (page) => {
     }));
   }
   async function drawAbsen() {
-    const users = (await api('users_list')).filter((u) => u.active);
+    const users = (await api('users_list')).filter((u) => u.active && (u.role === 'kasir' || cache.some((a) => a.user_id === u.id)));
     const days = []; for (let d = new Date(range[0]); ymd(d) <= range[1]; d = addDays(d, 1)) days.push(ymd(d));
     const rows = [];
     days.forEach((d) => users.forEach((u) => {
