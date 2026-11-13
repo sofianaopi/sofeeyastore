@@ -842,7 +842,7 @@ V.promo = async (page) => {
   const rank = (p) => { const [l] = status(p); return { Aktif: 0, Terjadwal: 1, Nonaktif: 2, Berakhir: 3 }[l]; };
   const sorted = [...promos].sort((x, y) => rank(x) - rank(y) || x.name.localeCompare(y.name));
   const period = (p) => (p.start_date || p.end_date ? `${p.start_date ? fmtDate(p.start_date) : 'Sekarang'} – ${p.end_date ? fmtDate(p.end_date) : 'seterusnya'}` : 'Tanpa batas waktu');
-  page.innerHTML = head('Promo', 'Promo otomatis langsung terpotong di kasir. Promo berkode dipakai saat kasir memasukkan kodenya.', `<button class="btn primary" data-new>${icon('plus')}Promo baru</button>`) +
+  page.innerHTML = head('Promo', 'Bila hanya 1 promo aktif, promo terpotong otomatis di kasir. Bila 2 promo atau lebih aktif bersamaan, kasir memilih sendiri promo yang dipakai.', `<button class="btn primary" data-new>${icon('plus')}Promo baru</button>`) +
     `<div class="stats">${stat('Promo aktif hari ini', fmtNum(promos.filter((p) => status(p)[0] === 'Aktif').length), '', 'hero')}${stat('Otomatis', fmtNum(promos.filter((p) => p.active && !p.code).length))}${stat('Pakai kode', fmtNum(promos.filter((p) => p.active && p.code).length))}${stat('Nonaktif / berakhir', fmtNum(promos.filter((p) => ['Nonaktif', 'Berakhir'].includes(status(p)[0])).length))}</div>` +
     (sorted.length ? `<div class="promo-grid">${sorted.map((p) => { const [l, c] = status(p); return `
       <article class="promo-card ${l === 'Aktif' ? 'live' : ''} ${l === 'Nonaktif' || l === 'Berakhir' ? 'off' : ''}">
@@ -866,7 +866,7 @@ V.promo = async (page) => {
         <div class="row" style="margin-top:8px"><b class="grow small">atau barang hadiah tertentu</b><span class="small muted" data-fcount></span></div><input class="input" data-fsearch placeholder="Cari barang hadiah…" style="margin:6px 0"><div class="pick" data-flist style="max-height:150px"></div></div>
       <div class="grid3">${field('Kode promo', 'code', p.code, { placeholder: 'Kosong = otomatis', attrs: 'style="text-transform:uppercase"' })}${field('Mulai', 'start_date', p.start_date || '', { type: 'date' })}${field('Berakhir', 'end_date', p.end_date || '', { type: 'date' })}</div>
       <div class="grid2">${field('Teks lencana di kartu barang', 'badge_text', p.badge_text, { placeholder: 'SALE, B2G1…', attrs: 'maxlength="12"' })}<label class="f">Warna lencana<select class="input" name="badge_color">${Object.keys(BADGE_COLORS).map((c) => `<option ${p.badge_color === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label></div>
-      <div class="row wrap" style="gap:18px"><label class="check"><input type="checkbox" name="active" ${p.active ? 'checked' : ''}> Aktif</label><label class="check"><input type="checkbox" name="stackable" ${p.stackable ? 'checked' : ''}> Bisa digabung dengan kode promo lain</label></div>
+      <div class="row wrap" style="gap:18px"><label class="check"><input type="checkbox" name="active" ${p.active ? 'checked' : ''}> Aktif</label><label class="check"><input type="checkbox" name="stackable" ${p.stackable ? 'checked' : ''}> Bisa digabung dengan promo lain</label></div>
     </div>`, foot: '<button class="btn" data-cancel>Batal</button><button class="btn primary" data-save>Simpan promo</button>' });
     const pick = { p: new Set((p.product_ids || []).map(Number)), f: new Set((p.free_product_ids || []).map(Number)) };
     const drawPick = (k) => {

@@ -343,6 +343,11 @@ async function Kasir(page) {
 
   const activePromos = () => st.promos.filter(Promo.activeToday);
   const autoPromos = () => activePromos().filter(Promo.isAuto);
+  // 2 promo atau lebih aktif bersamaan → tidak ada yang otomatis; kasir memilih sendiri
+  const manualPromo = () => activePromos().length >= 2;
+  // promo yang berlaku: tanpa centang "bisa digabung", hanya satu promo yang dipakai
+  const onlyOne = (list) => (list.length > 1 && list.some((p) => !p.stackable) ? [list.find((p) => !p.stackable)] : list);
+  const usedPromos = () => { const ids = new Set(); return onlyOne((manualPromo() ? st.vouchers : [...st.vouchers, ...autoPromos()]).filter((p) => !ids.has(p.id) && ids.add(p.id))); };
   const member = () => st.members.find((m) => m.id === st.memberId) || null;
 
   // ---------- perhitungan total
@@ -353,8 +358,7 @@ async function Kasir(page) {
     const memberRate = num(S.member_discount_percent);
     const voucher = m && m.voucher_amount > 0 && !m.voucher_used ? m.voucher_amount : 0;
     const blocked = !!m && voucher === 0 && memberRate > 0; // diskon member % menonaktifkan promo
-    const ids = new Set(); const eff = [];
-    if (!blocked) [...st.vouchers, ...autoPromos()].forEach((p) => { if (!ids.has(p.id)) { ids.add(p.id); eff.push(p); } });
+    const eff = blocked ? [] : usedPromos();
     const pc = Promo.compute(eff, cart, subtotal);
     const memberDisc = m ? (voucher > 0 ? Math.min(voucher, subtotal) : Math.round(subtotal * memberRate / 100)) : 0;
     const rewardDisc = st.reward && st.reward.type === 'discount' ? st.reward.discount_amount : 0;
@@ -376,8 +380,11 @@ async function Kasir(page) {
   }
   function renderPromos() {
     const r = calc();
-    const list = activePromos();
-    el('[data-promos]').innerHTML = list.map((p) => `<button class="pcard ${r.pc.perPromo[p.id] ? 'on' : ''}" data-promo="${p.id}" title="${esc(p.name)}"><span class="pc-top"><b>${esc(p.name)}</b>${r.pc.perPromo[p.id] ? icon('check', 'pc-ok') : ''}</span><span class="pc-val">${esc(Promo.describe(p))}</span>${p.code ? `<span class="pc-code">${esc(p.code)}</span>` : '<span class="pc-auto">Otomatis</span>'}</button>`).join('');
+    const list = activePromos(), manual = manualPromo();
+    const picked = (p) => st.vouchers.some((x) => x.id === p.id);
+    el('[data-promos]').innerHTML = (manual ? `<span class="pc-note"><b>${list.length} promo aktif.</b> Ketuk promo yang dipakai.</span>` : '') +
+      list.map((p) => { const on = !!r.pc.perPromo[p.id] || (manual && picked(p)); const tag = manual ? (picked(p) ? 'Dipakai' + (p.stackable ? ' · bisa digabung' : '') : 'Ketuk untuk pakai') : (p.code ? '' : 'Otomatis');
+        return `<button class="pcard ${on ? 'on' : ''}" data-promo="${p.id}" title="${esc(p.name)}" aria-pressed="${on}"><span class="pc-top"><b>${esc(p.name)}</b>${on ? icon('check', 'pc-ok') : ''}</span><span class="pc-val">${esc(Promo.describe(p))}</span>${p.code && !manual ? `<span class="pc-code">${esc(p.code)}</span>` : `<span class="pc-auto">${tag}</span>`}</button>`; }).join('');
     el('[data-promos]').classList.toggle('hidden', !list.length);
   }
   const alive = () => !!el('[data-grid]') && App.view === 'kasir';
@@ -394,7 +401,7 @@ async function Kasir(page) {
   }
   const effPrice = (p) => p.price - (p.discount || 0);
   // harga yang dibayar pembeli untuk 1 pcs, sudah termasuk promo otomatis (mis. "Harga jadi Rp99.000")
-  const showPrice = (p) => Math.max(0, effPrice(p) - Promo.unitOff(p, autoPromos()));
+  const showPrice = (p) => Math.max(0, effPrice(p) - Promo.unitOff(p, usedPromos()));
   function renderGrid() {
     if (!alive()) return;
     const q = st.q.trim().toLowerCase();
@@ -484,7 +491,7 @@ async function Kasir(page) {
     }).join('') : st.retur ? '' : `<div class="empty" style="padding:50px 10px">${icon('cart')}Scan barcode atau ketuk barang untuk mulai.</div>`);
 
     const chips = [
-      ...st.vouchers.map((p) => `<span class="chip blue">${esc(p.code)} <button data-rmv="${p.id}" aria-label="Hapus promo">×</button></span>`),
+      ...st.vouchers.map((p) => `<span class="chip blue">${esc(p.code || p.name)} <button data-rmv="${p.id}" aria-label="Hapus promo">×</button></span>`),
       ...st.fees.map((f) => `<span class="chip amber">${esc(f.label)} ${rupiah(f.amount)} <button data-rmf="${f.id}" aria-label="Hapus biaya">×</button></span>`),
       st.shipping ? `<span class="chip blue">${icon('truck')} ${esc(st.shipping.courier)} · ${esc(st.shipping.recipient || 'tanpa nama')} <button data-rms aria-label="Batalkan pengiriman">×</button></span>` : '',
       st.reward ? `<span class="chip gold">${icon('gift')} ${esc(st.reward.name)} <button data-rmr aria-label="Hapus reward">×</button></span>` : '',
@@ -493,7 +500,7 @@ async function Kasir(page) {
     el('[data-extras]').innerHTML = chips.join('');
     el('[data-extras]').classList.toggle('hidden', !chips.length);
 
-    const ups = r.blocked ? [] : Promo.upsell(autoPromos(), activePromos(), st.cart, r.subtotal, r.pc);
+    const ups = r.blocked ? [] : Promo.upsell(manualPromo() ? r.eff : autoPromos(), manualPromo() ? r.eff : activePromos(), st.cart, r.subtotal, r.pc);
     el('[data-upsell]').innerHTML = ups.map((u) => `<div class="upsell">${esc(u)}</div>`).join('');
 
     const eligible = m ? st.rewards.filter((x) => x.points_required <= m.points) : [];
@@ -589,18 +596,30 @@ async function Kasir(page) {
     m.$('[data-code]').onkeydown = (e) => { if (e.key === 'Enter') go(e.target.value); };
     $$('[data-c]', m.el).forEach((b) => (b.onclick = () => go(b.dataset.c)));
   }
-  function applyVoucher(raw) {
-    const code = String(raw || '').trim().toUpperCase(); if (!code) return false;
+  // pakai satu promo (lewat kode atau ketuk kartu promo). toggle=true: ketuk lagi untuk melepas
+  function pickPromo(p, toggle) {
     const r = calc();
     if (r.blocked) { toast('Promo tidak dapat digabung', 'Diskon member sedang aktif.', 'err'); return false; }
+    if (st.vouchers.some((x) => x.id === p.id)) {
+      if (toggle) { st.vouchers = st.vouchers.filter((x) => x.id !== p.id); toast('Promo dilepas', p.name); refresh(); return true; }
+      toast('Promo sudah dipakai', '', 'err'); return false;
+    }
+    if (!st.cart.length) { toast('Masukkan barang dulu', 'Promo dipilih setelah barang ada di keranjang.', 'err'); return false; }
+    const why = Promo.checkVoucher(p, st.cart, r.subtotal); if (why) { toast('Promo belum bisa dipakai', why, 'err'); return false; }
+    // tanpa "bisa digabung": hanya satu promo yang berlaku, promo lain dilepas
+    if (st.vouchers.length && (!p.stackable || st.vouchers.some((x) => !x.stackable))) {
+      const old = st.vouchers.map((x) => x.name).join(', ');
+      st.vouchers = [p]; toast('Promo diganti', `${p.name} dipakai, ${old} dilepas (promo tidak bisa digabung).`, 'ok');
+    } else { st.vouchers.push(p); toast('Promo dipakai', p.name, 'ok'); }
+    refresh(); return true;
+  }
+  function applyVoucher(raw) {
+    const code = String(raw || '').trim().toUpperCase(); if (!code) return false;
     const p = activePromos().find((x) => x.code && x.code.toUpperCase() === code);
     if (!p) { toast('Kode promo tidak ditemukan atau tidak aktif', code, 'err'); return false; }
-    if (st.vouchers.some((x) => x.id === p.id)) { toast('Promo sudah dipakai', '', 'err'); return false; }
-    const why = Promo.checkVoucher(p, st.cart, r.subtotal); if (why) { toast('Promo belum bisa dipakai', why, 'err'); return false; }
-    if (st.vouchers.length >= 2) { toast('Maksimal 2 kode promo per transaksi', '', 'err'); return false; }
-    if (st.vouchers.length === 1 && (!st.vouchers[0].stackable || !p.stackable)) { toast('Promo tidak bisa digabung', 'Salah satu promo tidak diatur "bisa digabung".', 'err'); return false; }
-    st.vouchers.push(p); toast('Promo dipakai', p.name, 'ok'); renderCart(); return true;
+    return pickPromo(p, false);
   }
+
   function feeModal() {
     const presets = feePresets();
     const m = modal({ title: 'Biaya tambahan', body: `${presets.length ? `<p class="small muted" style="margin:0 0 8px">Pilih cepat (nominal bisa diubah):</p><div class="quick" style="margin-bottom:14px">${presets.map((f, i) => `<button data-pre="${i}">${esc(f.label)} · ${rupiah(f.amount)}</button>`).join('')}</div>` : ''}<div class="stack" data-f>${field('Nama biaya', 'label', '', { placeholder: 'Ongkir Maxim, jahit, bungkus kado…' })}${field('Nominal (Rp)', 'amount', '', { numeric: true })}</div>${App.isAdmin() ? '<p class="small muted">Daftar pilihan cepat diatur di Pengaturan toko → Biaya tambahan.</p>' : ''}`, foot: '<button class="btn primary" data-ok>Tambahkan biaya</button>' });
@@ -806,7 +825,7 @@ async function Kasir(page) {
   el('[data-prn]').onclick = printerMenu;
   el('[data-kmenu]').onclick = () => App.rail(true);
   el('[data-cats]').onclick = (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; st.cat = b.dataset.cat; renderCats(); renderGrid(); };
-  el('[data-promos]').onclick = (e) => { const b = e.target.closest('[data-promo]'); if (!b) return; const p = st.promos.find((x) => x.id === +b.dataset.promo); if (p.code) applyVoucher(p.code); else toast('Promo otomatis', `${p.name} langsung terpotong saat syarat terpenuhi.`); };
+  el('[data-promos]').onclick = (e) => { const b = e.target.closest('[data-promo]'); if (!b) return; const p = st.promos.find((x) => x.id === +b.dataset.promo); if (manualPromo()) pickPromo(p, true); else if (p.code) applyVoucher(p.code); else toast('Promo otomatis', `${p.name} langsung terpotong saat syarat terpenuhi.`); };
   el('[data-grid]').onclick = (e) => {
     const b = e.target.closest('[data-g]'); if (!b) return;
     const g = groups().find((x) => x.key === b.dataset.g); if (!g) return;

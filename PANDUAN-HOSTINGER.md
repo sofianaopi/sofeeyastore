@@ -44,6 +44,13 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Aturan memakai promo (versi 20)
+
+- **Hanya 1 promo aktif hari itu:** promo terpotong otomatis di kasir (promo berkode tetap lewat kode).
+- **2 promo atau lebih aktif bersamaan:** tidak ada yang otomatis. Kasir mengetuk kartu promo yang dipakai (ketuk lagi untuk melepas). Promo berkode juga bisa dipilih dengan mengetuk kartunya.
+- **"Bisa digabung" tidak dicentang:** promo itu berlaku sendirian. Bila kasir memilih promo lain, promo sebelumnya otomatis dilepas.
+- **"Bisa digabung" dicentang pada beberapa promo:** promo-promo itu boleh dipakai bersamaan.
+
 ## Promo "Harga jadi" (versi 18–19)
 
 Saat versi 19 pertama dibuka, semua promo lama berjenis "Potongan tetap" otomatis diubah menjadi "Harga jadi (harga tetap)": nilai 99000 berarti barang dijual Rp99.000 (contoh: Rp149.000 → Rp99.000).

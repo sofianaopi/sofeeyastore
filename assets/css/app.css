@@ -754,3 +754,8 @@ body.in-kasir.compact .toasts,body.in-kasir.d-phone .toasts{left:50%;transform:t
 .btn.bc-go{height:52px;font-size:16px;background:#25A35A;border-color:#25A35A}
 .btn.bc-go:hover{background:#1E8C4C}
 .bc-list summary{cursor:pointer;font-weight:700;padding:6px 0}
+/* promo pilih sendiri (v20) */
+.promostrip .pc-note{flex:none;align-self:center;max-width:230px;font-size:12.5px;line-height:1.35;color:var(--ink-2)}
+.pos .promostrip .pc-note{color:var(--k-ink2,#5B675F)}
+.promostrip .pc-note{position:sticky;left:0;z-index:1;background:var(--bg,#F5F7FA);padding:6px 10px 6px 0;max-width:200px}
+.pos .promostrip .pc-note{background:var(--k-bg)}
