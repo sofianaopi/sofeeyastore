@@ -58,7 +58,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 8) return;
+    if ($v >= 9) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -122,6 +122,9 @@ function migrate(PDO $pdo): void {
         recipients LONGTEXT NULL, total INT NOT NULL DEFAULT 0, sent INT NOT NULL DEFAULT 0, user_name VARCHAR(200) NOT NULL DEFAULT '',
         created DATETIME NULL, updated DATETIME NULL)$tail");
     $setDefault('schema_version', '8', true);
+    // v9: promo lama "Potongan tetap" dipakai pemilik sebagai harga tetap (isi 99000 = dijual Rp99.000) → jadikan "Harga jadi"
+    if ($v < 9) $pdo->exec("UPDATE promos SET type = 'price' WHERE type = 'fixed'");
+    $setDefault('schema_version', '9', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];

@@ -44,7 +44,9 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
-## Promo "Harga jadi" (versi 18)
+## Promo "Harga jadi" (versi 18–19)
+
+Saat versi 19 pertama dibuka, semua promo lama berjenis "Potongan tetap" otomatis diubah menjadi "Harga jadi (harga tetap)": nilai 99000 berarti barang dijual Rp99.000 (contoh: Rp149.000 → Rp99.000).
 
 Jenis promo kini bernama jelas:
 
