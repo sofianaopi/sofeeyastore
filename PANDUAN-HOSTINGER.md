@@ -44,6 +44,10 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Tampilan kasir "Etalase" (versi 15)
+
+Halaman Kasir kini meniru suasana toko: foto barang berada di bingkai melengkung seperti ceruk rak, warna sage seperti meja kasir, tombol Bayar berwarna kuningan, promo berbentuk label harga gantung, dan keranjang seperti nota kertas. Nama barang dan total memakai huruf Lora (sudah disertakan di `assets/fonts`, lisensi SIL OFL, berfungsi tanpa internet). Notifikasi "Ditambahkan" kini muncul di bawah sehingga tidak menutupi keranjang. Halaman lain tidak berubah.
+
 ## Tampilan & animasi (versi 14)
 
 Aplikasi kini bergerak lebih halus: halaman muncul dengan naik pelan, angka di dashboard dan laporan "berjalan" ke nilainya, kartu barang terangkat saat disentuh, barang baru meluncur ke keranjang dan total berdenyut saat berubah, jendela (modal) muncul memantul dan menutup memudar, serta notifikasi kecil punya garis waktu.

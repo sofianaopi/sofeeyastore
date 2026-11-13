@@ -628,3 +628,111 @@ body.d-phone .prod .nm{font-size:12.5px}
 .toast::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.45);transform-origin:left;animation:toastBar var(--life,2.6s) linear forwards}
 .toast.out{animation:toastOut .22s ease-in forwards}
 .stat.still{animation:none!important}
+
+/* =========================================================
+   KASIR "ETALASE" (v15) — halaman kasir meniru toko:
+   ceruk rak melengkung, meja kasir sage, lampu kuningan,
+   label harga gantung, nota kertas hangat.
+   Hanya berlaku di dalam .pos (halaman Kasir).
+   ========================================================= */
+@font-face{font-family:"Lora";src:url(../fonts/lora-variable.ttf) format("truetype");font-weight:400 700;font-style:normal;font-display:swap}
+.pos{
+  --k-bg:#F2F3EF; --k-panel:#E4E8E1; --k-paper:#FFFDF9;
+  --k-sage:#5D7262; --k-sage-2:#4E6253; --k-sage-soft:#E3E9E1;
+  --k-ink:#24302A; --k-ink2:#5B675F; --k-ink3:#7D877F;
+  --k-brass:#C9A25B; --k-brass-ink:#2B2310; --k-blush:#F4DED8; --k-blush-ink:#83463A;
+  --k-line:#DCE1D9; --k-serif:"Lora",Georgia,"Times New Roman",serif;
+  background:var(--k-bg); color:var(--k-ink);
+}
+.pos .pos-tools{background:var(--k-bg);padding:16px 18px 12px;gap:10px}
+.pos .scanbox{height:48px;padding:0 18px;border:1.5px solid #C9D1C6;border-radius:999px;background:#fff;transition:border-color .2s,box-shadow .2s}
+.pos .scanbox:focus-within{border-color:var(--k-sage);box-shadow:0 0 0 4px var(--k-sage-soft)}
+.pos .scanbox svg{color:var(--k-sage)}
+.pos .scanbox input{font-size:15.5px;color:var(--k-ink)}
+.pos .scanbox input::placeholder{color:var(--k-ink3)}
+.pos .pos-tools>.btn{height:48px;min-width:48px;border-radius:999px;border-color:var(--k-line);background:#fff;color:var(--k-ink2)}
+.pos .pos-tools>.btn:hover{border-color:var(--k-sage);color:var(--k-sage)}
+
+/* kategori: pil tenang, yang aktif berwarna sage */
+.pos .cats{padding:0 18px 12px;gap:4px}
+.pos .cats button{height:38px;padding:0 16px;border:0;border-radius:999px;background:transparent;color:var(--k-ink2);font-weight:600}
+.pos .cats button:hover{background:var(--k-sage-soft);color:var(--k-ink)}
+.pos .cats button.on{background:var(--k-sage);color:#fff}
+
+/* promo: label harga gantung dengan lubang tali */
+.pos .promostrip{padding:0 18px 14px;gap:10px}
+.pos .pcard{width:190px;border:0;border-radius:10px;background:var(--k-blush);padding:10px 12px 10px 30px;gap:2px;clip-path:polygon(16px 0,100% 0,100% 100%,16px 100%,0 50%)}
+.pos .pcard::before{content:"";position:absolute;left:13px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--k-bg)}
+.pos .pcard{position:relative}
+.pos .pcard b{color:var(--k-blush-ink);font-size:12px;font-weight:700}
+.pos .pcard .pc-val{font-family:var(--k-serif);font-size:16px;font-weight:600;color:var(--k-ink)}
+.pos .pcard .pc-auto{color:var(--k-blush-ink);opacity:.8}
+.pos .pcard .pc-code{border-color:var(--k-blush-ink);color:var(--k-blush-ink)}
+.pos .pcard:hover{border-color:transparent;filter:brightness(.98)}
+.pos .pcard.on{background:var(--k-sage-soft)}
+.pos .pcard.on b,.pos .pcard.on .pc-auto{color:var(--k-sage-2)}
+.pos .pcard .pc-ok{color:var(--k-sage)}
+
+/* grid: barang berdiri di ceruk melengkung seperti rak toko */
+.pos .products{padding:6px 18px 20px;gap:20px 14px;grid-template-columns:repeat(auto-fill,minmax(136px,1fr))}
+.pos .prod{background:transparent;border:0;border-radius:0;padding:0;box-shadow:none}
+.pos .prod:hover{transform:none;box-shadow:none;border-color:transparent}
+.pos .prod .thumb{aspect-ratio:4/5;border-radius:999px 999px 14px 14px;background:#E6EAE3;transition:box-shadow .2s}
+.pos .prod:hover .thumb,.pos .prod:focus-visible .thumb{box-shadow:0 0 0 2px var(--k-bg),0 0 0 4px var(--k-sage)}
+.pos .prod:focus-visible{outline:0}
+.pos .prod .thumb.ph{background:linear-gradient(170deg,hsl(var(--h) 30% 94%),hsl(var(--h) 22% 84%))}
+.pos .prod .thumb.ph b{font-family:var(--k-serif);font-weight:500;font-size:30px;color:hsl(var(--h) 18% 38%);letter-spacing:.02em}
+.pos .prod .pinfo{padding:11px 2px 0;margin-top:0;gap:4px}
+.pos .prod .nm{font-family:var(--k-serif);font-weight:600;font-size:15.5px;line-height:1.25;color:var(--k-ink)}
+.pos .prod .meta{color:var(--k-ink3)}
+.pos .prod .pr{font-size:14.5px;color:var(--k-ink)}
+.pos .prod .pr s{color:var(--k-ink3)}
+.pos .prod .pr em{color:var(--k-ink3)}
+.pos .prod .pr em.low{color:var(--k-blush-ink)}
+.pos .prod .qtyin{left:50%;right:auto;top:12px;transform:translateX(-50%);background:var(--k-ink);box-shadow:0 0 0 3px rgba(255,255,255,.85)}
+.pos .prod .bdg{top:44px;bottom:auto;left:50%;right:auto;transform:translateX(-50%);border-radius:6px;white-space:nowrap}
+
+/* keranjang: nota kertas hangat di atas meja sage */
+.pos .cartcol{background:var(--k-panel);border-left:0;padding:16px 16px 0}
+.pos .receipt{background:var(--k-paper);border-radius:6px 6px 0 0;box-shadow:0 14px 30px -20px rgba(36,48,42,.45)}
+.pos .zig{background:linear-gradient(-45deg,transparent 8px,var(--k-paper) 0) 0 0/16px 12px repeat-x,linear-gradient(45deg,transparent 8px,var(--k-paper) 0) 0 0/16px 12px repeat-x}
+.pos .rc-h{padding:16px 18px 12px;border-bottom:1px dashed #D3D8CF}
+.pos .rc-h .row b{font-family:var(--k-serif);font-size:19px;font-weight:600}
+.pos .rc-h .btn.sm{height:34px;border-radius:999px;border-color:var(--k-line);background:transparent;color:var(--k-ink2)}
+.pos .rc-h .btn.sm:hover{border-color:var(--k-sage);color:var(--k-sage)}
+.pos .rc-h .btn.sm.primary{background:var(--k-sage);border-color:var(--k-sage);color:#fff}
+.pos .rc-h .btn.ghost{color:var(--k-ink3)}
+.pos .rc-items{padding:4px 18px}
+.pos .line{border-bottom:1px dashed #E1E4DD;padding:12px 0}
+.pos .line .t b{font-family:var(--k-serif);font-size:15px;font-weight:600}
+.pos .qty{border-radius:999px;border-color:var(--k-line);background:#fff}
+.pos .qty button{width:36px;height:34px;background:transparent;color:var(--k-ink)}
+.pos .qty button:hover{background:var(--k-sage-soft)}
+.pos .qty input{height:34px;background:transparent}
+.pos .line .pp button{color:var(--k-sage)}
+.pos .line .dl{color:var(--k-blush-ink)}
+.pos .upsell{background:var(--k-blush);color:var(--k-blush-ink);margin:8px 18px 0}
+.pos .rc-extras,.pos .rc-tot{border-top:1px dashed #D3D8CF;padding-left:18px;padding-right:18px}
+.pos .rc-tot .r{color:var(--k-ink2)}
+.pos .rc-tot .r.minus span:last-child{color:var(--k-sage)}
+.pos .rc-tot .r.big{font-family:var(--k-serif);font-size:27px;font-weight:600;color:var(--k-ink);padding-top:8px;align-items:baseline}
+.pos .rc-tot .r.big span:first-child{font-size:18px}
+/* tombol bayar: kuningan seperti lampu toko */
+.pos .paybar{padding:14px 0 16px}
+.pos .paybar .btn.gold,.pos .cartfab .btn{background:var(--k-brass);border-color:var(--k-brass);color:var(--k-brass-ink);border-radius:999px;height:56px;font-size:16.5px;font-weight:800}
+.pos .paybar .btn.gold:hover:not(:disabled){background:#BF964D;box-shadow:0 8px 20px -8px rgba(150,110,40,.6)}
+.pos .paybar .btn.gold:disabled{background:#E5E0D3;border-color:#E5E0D3;color:#8E887A;opacity:1}
+
+/* pilihan warna & ukuran memakai bahasa yang sama */
+.vsheet .vs-img .thumb{border-radius:999px 999px 16px 16px;aspect-ratio:3/4}
+.vsheet .vs-price{font-family:"Lora",Georgia,serif;font-weight:600}
+.vsheet .vchips button.on{border-color:#5D7262;background:#E3E9E1;color:#24302A;box-shadow:0 0 0 1px #5D7262 inset}
+@media (max-width:600px){.vsheet .vs-img .thumb{aspect-ratio:16/10;border-radius:16px}}
+
+/* notifikasi kecil di kasir tidak menutupi keranjang */
+body.in-kasir .toasts{top:auto;bottom:24px;right:auto;left:calc(var(--railw,72px) + 18px);align-items:flex-start}
+body.in-kasir.compact .toasts,body.in-kasir.d-phone .toasts{left:50%;transform:translateX(-50%);bottom:96px;top:auto;align-items:center}
+
+/* angka tabel (tnum) di Lora melebarkan spasi: serif memakai angka biasa */
+.pos .prod .nm,.pos .pcard .pc-val,.pos .rc-h .row b,.pos .line .t b,.pos .rc-tot .r.big span:first-child,.pos .prod .thumb.ph b,.vsheet .vs-price{font-variant-numeric:normal;font-feature-settings:"tnum" 0}
+.pos .rc-tot .r.big span:last-child{font-variant-numeric:lining-nums;font-feature-settings:"tnum" 0}
