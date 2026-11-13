@@ -170,6 +170,7 @@ const App = {
     window.onhashchange = () => this.route();
     this.route();
     this.startPing();
+    if (Printer.saved()) Printer.restore();
   },
 
   route() {
@@ -234,6 +235,7 @@ async function Kasir(page) {
         <form class="scanbox" data-scanform>${icon('barcode')}<input data-scan placeholder="Scan barcode atau ketik nama barang…" autocomplete="off" aria-label="Scan barcode atau cari barang"></form>
         <button class="btn icon" data-camera title="Scan pakai kamera" aria-label="Scan pakai kamera">${icon('camera')}</button>
         <button class="btn" data-addprod title="Tambah barang baru">${icon('plus')}<span class="hide-sm">Barang</span></button>
+        <button class="btn icon prn-btn" data-prn title="Printer & struk terakhir" aria-label="Printer & struk terakhir">${icon('printer')}<i class="prn-dot"></i></button>
         <button class="btn icon" data-lay title="Tampilan potret / lanskap" aria-label="Tampilan potret / lanskap">${icon('rotate')}</button>
       </div>
       <div class="cats" data-cats></div>
@@ -277,6 +279,63 @@ async function Kasir(page) {
     ]);
     Object.assign(st, { products, promos, members, sales, rewards });
   } catch (e) { toastErr(e); }
+
+  // ---------- memori: keranjang & struk terakhir tersimpan di perangkat (aman saat halaman dimuat ulang)
+  const DKEY = 'pos-draft-' + App.user.id, LKEY = 'pos-last-' + App.user.id;
+  const newRef = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
+  let ref = newRef(), pending = false;
+  function saveDraft() {
+    try {
+      const empty = !st.cart.length && !st.retur && !st.memberId && !st.fees.length && !st.shipping && !st.vouchers.length && !st.reward;
+      if (empty && !pending) { localStorage.removeItem(DKEY); return; }
+      localStorage.setItem(DKEY, JSON.stringify({ v: 1, at: Date.now(), ref, pending, cart: st.cart, memberId: st.memberId, vouchers: st.vouchers.map((p) => p.id), fees: st.fees, shipping: st.shipping, reward: st.reward, note: st.note, retur: st.retur, offerShown: st.offerShown, cat: st.cat }));
+    } catch (e) { /* penyimpanan penuh / mode privat */ }
+  }
+  const rememberLast = (trx) => { try { localStorage.setItem(LKEY, JSON.stringify({ id: trx.id, invoice: trx.invoice, at: Date.now() })); } catch (e) { /* abaikan */ } };
+  const lastInfo = () => { try { return JSON.parse(localStorage.getItem(LKEY) || 'null'); } catch (e) { return null; } };
+  async function restoreDraft() {
+    let d = null; try { d = JSON.parse(localStorage.getItem(DKEY) || 'null'); } catch (e) { /* rusak */ }
+    if (!d || d.v !== 1) return;
+    if (Date.now() - d.at > 3 * 86400000) { localStorage.removeItem(DKEY); return; }
+    // halaman dimuat ulang saat pembayaran sedang dikirim: cek apakah sudah tersimpan di server
+    if (d.pending && d.ref) {
+      try {
+        const trx = await api('checkout_status', { client_ref: d.ref });
+        if (trx) { localStorage.removeItem(DKEY); rememberLast(trx); toast('Transaksi sudah tersimpan', trx.invoice + ' tersimpan sebelum halaman dimuat ulang.', 'ok'); doneModal(trx); return; }
+      } catch (e) { /* offline: tetap pulihkan keranjang */ }
+    }
+    ref = d.ref || newRef();
+    let dropped = 0, changed = 0;
+    st.cart = (d.cart || []).map((c) => {
+      const p = st.products.find((x) => x.id === c.id);
+      if (!p || p.stock <= 0) { dropped++; return null; }
+      const manual = c.price !== c.original_price, q = Math.min(c.qty, p.stock);
+      if (q < c.qty || (!manual && p.price !== c.price)) changed++;
+      return { ...c, name: p.name, barcode: p.barcode, category: p.category, model: p.model, size: p.size, color: p.color, cost: p.cost, commission: p.commission, discount: p.discount || 0, stock: p.stock, price: manual ? c.price : p.price, original_price: p.price, qty: q };
+    }).filter(Boolean);
+    st.memberId = d.memberId && st.members.some((m) => m.id === d.memberId) ? d.memberId : null;
+    st.vouchers = (d.vouchers || []).map((id) => st.promos.find((p) => p.id === id)).filter((p) => p && Promo.activeToday(p));
+    st.fees = Array.isArray(d.fees) ? d.fees : []; st.shipping = d.shipping || null; st.note = d.note || ''; st.retur = d.retur || null; st.offerShown = !!d.offerShown;
+    st.reward = d.reward && st.rewards.some((r) => r.id === d.reward.id) ? d.reward : null;
+    if (d.cat && st.products.some((p) => p.category === d.cat && p.stock > 0)) st.cat = d.cat;
+    const n = st.cart.reduce((a, c) => a + c.qty, 0);
+    if (n || st.retur || dropped) toast('Transaksi dipulihkan', `${n} barang di keranjang${st.retur ? ' + retur ' + st.retur.invoice : ''}${dropped ? ` · ${dropped} barang dikeluarkan karena stok habis` : ''}${changed ? ' · harga/stok diperbarui' : ''}`, dropped ? 'err' : 'ok');
+  }
+  // menu printer & struk terakhir
+  function printerMenu() {
+    const sv = Printer.saved(), li = lastInfo(), on = Printer.status === 'connected';
+    const m = modal({ title: 'Printer & struk', body: `<div class="stack">
+      <div class="row"><span class="chip ${on ? 'green' : Printer.status === 'connecting' ? 'amber' : ''}">${on ? 'Terhubung' : Printer.status === 'connecting' ? 'Menghubungkan…' : 'Belum terhubung'}</span><b class="grow">${esc((Printer.device && Printer.device.name) || (sv && sv.name) || 'Belum ada printer tersimpan')}</b></div>
+      ${!Printer.supported ? '<p class="small danger" style="margin:0">Browser ini tidak mendukung printer Bluetooth. Gunakan Chrome di Android / PC, atau cetak biasa.</p>' : on ? '<button class="btn" data-pdis>Putuskan printer</button>' : `<button class="btn primary" data-pcon>${icon('printer')}${sv ? 'Sambungkan ' + esc(sv.name) : 'Hubungkan printer'}</button>`}
+      ${li ? `<button class="btn" data-plast>${icon('refresh')}Cetak ulang struk terakhir · ${esc(li.invoice)}</button>` : ''}
+      <a class="btn ghost" href="#printer">Pengaturan printer</a></div>` });
+    const b = (q, f) => { const x = m.$(q); if (x) x.onclick = f; };
+    b('[data-pcon]', async () => { try { await Printer.connect(); toast('Printer terhubung', Printer.device?.name || '', 'ok'); m.close(); } catch (e) { if (e.name !== 'NotFoundError') toastErr(e); } });
+    b('[data-pdis]', () => { Printer.disconnect(); m.close(); });
+    b('[data-plast]', async () => { try { const trx = await api('get', { table: 'transactions', id: li.id }); m.close(); doneModal(trx, { reprint: true }); } catch (e) { toastErr(e); } });
+  }
+  const prnUpd = () => { const b = el('[data-prn]'); if (!b) return; b.dataset.st = Printer.status; b.title = 'Printer: ' + (Printer.status === 'connected' ? 'terhubung' : Printer.status === 'connecting' ? 'menghubungkan…' : 'belum terhubung'); };
+  Printer.listeners.add(prnUpd);
 
   const activePromos = () => st.promos.filter(Promo.activeToday);
   const autoPromos = () => activePromos().filter(Promo.isAuto);
@@ -397,6 +456,7 @@ async function Kasir(page) {
   }
   function renderCart() {
     if (!alive()) return;
+    saveDraft();
     const r = calc();
     const m = r.m;
     el('[data-membername]').textContent = m ? m.name + ' · ' + fmtNum(m.points) + ' poin' : 'Pilih member';
@@ -694,26 +754,33 @@ async function Kasir(page) {
       const btn = m.$('[data-finish]'); btn.disabled = true; btn.textContent = 'Menyimpan…';
       const extra = r.memberDisc + r.rewardDisc;
       const items = st.cart.map((c) => { const ip = r.pc.itemPromo[c.id]; const line = c.price * c.qty; return { id: c.id, qty: c.qty, price: c.price, discount: c.discount, promoName: ip ? ip.promoName : '', itemDiscount: Math.round((ip ? ip.amount : 0) + (c.discount || 0) * c.qty + (r.subtotal ? (line / r.subtotal) * extra : 0)) }; });
+      pending = true; saveDraft();
       try {
         const trx = await api('checkout', {
+          client_ref: ref,
           items, discount: r.discount, fee: r.fee, fee_note: [...st.fees.map((f) => `${f.label} ${rupiah(f.amount)}`), st.shipping && st.shipping.fee ? `Ongkir ${st.shipping.courier} ${rupiah(st.shipping.fee)}` : ''].filter(Boolean).join('; '), shipping: st.shipping,
           payment: payNum, payment_method: method, member_id: st.memberId, channel,
           retur: st.retur ? { invoice: st.retur.invoice, items: st.retur.items.map((i) => ({ id: i.id, qty: i.qty })) } : null, reward_id: st.reward ? st.reward.id : null, voucher_applied: r.voucher > 0,
           sales_code: m.$('[name=sales]').value.trim(), promo_name: [...r.promoNames, st.reward ? 'Tukar poin: ' + st.reward.name : ''].filter(Boolean).join(', '),
           note: [m.$('[name=note]').value.trim(), st.reward && st.reward.type === 'product' ? 'Hadiah poin: ' + st.reward.product_name : ''].filter(Boolean).join(' | '),
         });
-        m.close(); doneModal(trx);
-      } catch (ex) { toastErr(ex); btn.disabled = false; btn.textContent = refund ? 'Selesaikan retur' : method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; }
+        rememberLast(trx); m.close(); doneModal(trx);
+      } catch (ex) { pending = false; saveDraft(); toastErr(ex); btn.disabled = false; btn.textContent = refund ? 'Selesaikan retur' : method === 'cash' ? 'Selesaikan transaksi' : 'Sudah dibayar — selesaikan'; }
     };
   }
-  function doneModal(trx) {
-    const m = modal({ title: 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.total < 0 ? `<h1 style="margin-top:10px">Kembalikan uang ${rupiah(-trx.total)}</h1>` : trx.return_ref && trx.total === 0 ? '<h1 style="margin-top:10px">Tukar barang selesai</h1>' : trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
-      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Sofeeya Store'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>Transaksi baru</button>`, onClose: () => newSale() });
+  function doneModal(trx, { reprint = false } = {}) {
+    const pp = PrinterPrefs.get();
+    const m = modal({ title: reprint ? 'Struk ' + trx.invoice : 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.total < 0 ? `<h1 style="margin-top:10px">Kembalikan uang ${rupiah(-trx.total)}</h1>` : trx.return_ref && trx.total === 0 ? '<h1 style="margin-top:10px">Tukar barang selesai</h1>' : trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
+      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Sofeeya Store'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>${reprint ? 'Tutup' : 'Transaksi baru'}</button>`, onClose: () => { if (!reprint) newSale(); } });
     m.$('[data-print]').onclick = () => printHTML(receiptHTML(trx, S));
-    const bt = m.$('[data-bt]'); if (bt) bt.onclick = async () => { try { await Printer.print(escposReceipt(trx, S)); toast('Struk dikirim ke printer', '', 'ok'); } catch (ex) { toastErr(ex); } };
+    const btPrint = async () => { try { await Printer.printReceipt(trx); toast('Struk dikirim ke printer', Printer.device?.name || '', 'ok'); } catch (ex) { if (ex.name !== 'NotFoundError') toastErr(ex); } };
+    const bt = m.$('[data-bt]'); if (bt) bt.onclick = btPrint;
+    // cetak otomatis (diatur di menu Printer)
+    if (!reprint && pp.auto && Printer.supported && (Printer.char || Printer.saved())) btPrint();
     m.$('[data-new]').onclick = () => m.close();
   }
   async function newSale() {
+    ref = newRef(); pending = false;
     Object.assign(st, { cart: [], memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null });
     document.body.classList.remove('cart-open');
     try { const [p, mem] = await Promise.all([db.list('products'), db.list('members')]); st.products = p; st.members = mem; } catch (e) { /* biarkan */ }
@@ -726,6 +793,7 @@ async function Kasir(page) {
   el('[data-camera]').onclick = async () => { const code = await scanWithCamera(); if (code) handleScan(code); };
   el('[data-addprod]').onclick = addProductModal;
   el('[data-lay]').onclick = (e) => App.layoutMenu(e.currentTarget);
+  el('[data-prn]').onclick = printerMenu;
   el('[data-kmenu]').onclick = () => App.rail(true);
   el('[data-cats]').onclick = (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; st.cat = b.dataset.cat; renderCats(); renderGrid(); };
   el('[data-promos]').onclick = (e) => { const b = e.target.closest('[data-promo]'); if (!b) return; const p = st.promos.find((x) => x.id === +b.dataset.promo); if (p.code) applyVoucher(p.code); else toast('Promo otomatis', `${p.name} langsung terpotong saat syarat terpenuhi.`); };
@@ -769,7 +837,8 @@ async function Kasir(page) {
   };
   document.addEventListener('keydown', onKey);
 
-  renderCats(); refresh();
+  await restoreDraft();
+  renderCats(); refresh(); prnUpd();
   if (window.innerWidth > 900) scan.focus();
-  return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('cart-open'); };
+  return () => { document.removeEventListener('keydown', onKey); document.body.classList.remove('cart-open'); Printer.listeners.delete(prnUpd); };
 }

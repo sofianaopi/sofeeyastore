@@ -58,7 +58,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 4) return;
+    if ($v >= 5) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -97,7 +97,10 @@ function migrate(PDO $pdo): void {
     $setDefault('sales_channels', json_encode(DEFAULT_CHANNELS));
     $setDefault('size_sets', json_encode(DEFAULT_SIZE_SETS));
     $setDefault('return_days', '7');
-    $setDefault('schema_version', '4', true);
+    // v5: penanda unik transaksi dari perangkat kasir (mencegah transaksi ganda saat halaman dimuat ulang)
+    $addCol('transactions', 'client_ref', "VARCHAR(40) NOT NULL DEFAULT ''");
+    try { $pdo->exec('CREATE INDEX idx_tx_client_ref ON transactions (client_ref)'); } catch (Throwable $e) { /* sudah ada */ }
+    $setDefault('schema_version', '5', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -505,8 +508,135 @@ function gen_invoice(): string {
     return 'INV' . date('ymdHis') . '-' . random_int(10, 99);
 }
 
+// =====================================================================
+//  NOTIFIKASI WHATSAPP (Fonnte / CallMeBot) — dikirim setelah balasan ke kasir
+// =====================================================================
+$DEFER = [];
+function after_response(callable $f): void { global $DEFER; $DEFER[] = $f; }
+function run_deferred(): void {
+    global $DEFER;
+    if (!$DEFER) return;
+    ignore_user_abort(true);
+    if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
+    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+    elseif (function_exists('litespeed_finish_request')) litespeed_finish_request();
+    else { while (ob_get_level() > 0) @ob_end_flush(); @flush(); }
+    foreach ($DEFER as $f) { try { $f(); } catch (Throwable $e) { error_log('[SofeeyaPOS] notifikasi: ' . $e->getMessage()); } }
+    $DEFER = [];
+}
+function wa_phone(string $p): string {
+    $d = preg_replace('/\D+/', '', $p);
+    if (strpos($d, '0') === 0) $d = '62' . substr($d, 1);
+    elseif (strpos($d, '8') === 0) $d = '62' . $d;
+    return $d;
+}
+function wa_targets(): array {
+    $out = [];
+    foreach (preg_split('/[,;\n\/]+/', (string)setting('wa_targets', '')) as $t) { $n = wa_phone($t); if (strlen($n) >= 10 && strlen($n) <= 15) $out[] = $n; }
+    return array_values(array_unique($out));
+}
+function wa_http(string $url, ?array $post, array $headers = []): array {
+    if (!function_exists('curl_init')) return [0, 'Ekstensi cURL tidak aktif di server.'];
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_TIMEOUT => 15, CURLOPT_HTTPHEADER => $headers, CURLOPT_USERAGENT => 'SofeeyaPOS/1.0']);
+    if ($post !== null) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post)); }
+    $body = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+    return [$code, $body === false ? $err : (string)$body];
+}
+// kirim pesan; hasil terakhir disimpan untuk ditampilkan di Pengaturan
+function wa_send(string $text, string $label = ''): array {
+    global $CONFIG;
+    if (!empty($CONFIG['demo'])) return ['ok' => false, 'info' => 'Tidak aktif di versi demo.'];
+    $provider = (string)setting('wa_provider', 'fonnte');
+    $token = trim((string)setting('wa_token', ''));
+    $targets = wa_targets();
+    if ($token === '') $res = ['ok' => false, 'info' => 'Token / API key belum diisi.'];
+    elseif (!$targets) $res = ['ok' => false, 'info' => 'Nomor penerima belum diisi.'];
+    elseif ($provider === 'callmebot') {
+        $fails = []; $sent = 0;
+        foreach ($targets as $t) {
+            [$code, $body] = wa_http('https://api.callmebot.com/whatsapp.php?' . http_build_query(['phone' => '+' . $t, 'text' => $text, 'apikey' => $token, 'source' => 'php']), null);
+            if ($code === 200 && stripos($body, 'error') === false) $sent++; else $fails[] = '+' . $t . ': ' . ($code ? 'HTTP ' . $code . ' ' : '') . mb_substr(trim(strip_tags($body)), 0, 120);
+        }
+        $res = ['ok' => !$fails, 'info' => $fails ? implode(' | ', $fails) : "Terkirim ke $sent nomor."];
+    } else {
+        [$code, $body] = wa_http('https://api.fonnte.com/send', ['target' => implode(',', $targets), 'message' => $text, 'countryCode' => '62'], ['Authorization: ' . $token]);
+        $j = json_decode($body, true);
+        $ok = $code === 200 && is_array($j) && !empty($j['status']);
+        $res = ['ok' => $ok, 'info' => $ok ? 'Terkirim ke ' . count($targets) . ' nomor.' : 'Fonnte: ' . (is_array($j) ? (string)($j['reason'] ?? $j['detail'] ?? 'gagal') : ($code ? 'HTTP ' . $code : $body))];
+    }
+    set_setting('wa_last', json_encode(['time' => now(), 'ok' => $res['ok'], 'info' => $res['info'], 'label' => $label], JSON_UNESCAPED_UNICODE));
+    return $res;
+}
+function wa_rp($n): string { return ($n < 0 ? '-' : '') . 'Rp' . number_format(abs((float)$n), 0, ',', '.'); }
+function wa_tx_message(array $tx): string {
+    $PAY = ['cash' => 'Tunai', 'qris' => 'QRIS', 'transfer' => 'Transfer'];
+    $store = (string)setting('store_name', 'Toko');
+    $isRet = !empty($tx['return_ref']);
+    $L = [];
+    $L[] = ($isRet ? '🔁 *Tukar / retur barang*' : '🛍️ *Transaksi baru*') . ' — ' . $store;
+    $L[] = $tx['invoice'] . ' · ' . date('H:i', strtotime((string)$tx['created']));
+    $who = 'Kasir: ' . ($tx['cashier'] ?: '-');
+    if (($tx['channel'] ?? 'Toko') !== 'Toko') $who .= ' · ' . $tx['channel'];
+    $L[] = $who;
+    if (setting('wa_items', '1') === '1') {
+        $L[] = '';
+        foreach (array_slice((array)$tx['items'], 0, 12) as $i) {
+            $net = (float)$i['price'] * (int)$i['qty'] - (float)($i['itemDiscount'] ?? 0);
+            $L[] = '• ' . $i['name'] . ' ×' . (int)$i['qty'] . ' = ' . wa_rp($net);
+        }
+        if (count((array)$tx['items']) > 12) $L[] = '• … dan ' . (count((array)$tx['items']) - 12) . ' barang lain';
+        foreach ((array)($tx['return_items'] ?? []) as $i) $L[] = '↩ ' . $i['name'] . ' ×' . (int)$i['qty'] . ' = -' . wa_rp((float)$i['price'] * (int)$i['qty']);
+    }
+    $L[] = '';
+    if ((float)$tx['discount'] > 0) $L[] = 'Diskon: -' . wa_rp($tx['discount']);
+    if ($isRet && (float)$tx['total'] < 0) $L[] = '*Uang dikembalikan: ' . wa_rp(-(float)$tx['total']) . '*';
+    else $L[] = '*Total: ' . wa_rp($tx['total']) . '*' . ((float)$tx['total'] > 0 ? ' (' . ($PAY[$tx['payment_method']] ?? $tx['payment_method']) . ')' : '');
+    if (!empty($tx['member_name'])) $L[] = 'Member: ' . $tx['member_name'] . ((int)$tx['points_earned'] > 0 ? ' (+' . (int)$tx['points_earned'] . ' poin)' : '');
+    if (!empty($tx['shipping'])) $L[] = '🚚 Dikirim ke ' . ($tx['shipping']['recipient'] ?? '') . ' via ' . ($tx['shipping']['courier'] ?? '');
+    if (!empty($tx['note'])) $L[] = 'Catatan: ' . mb_substr((string)$tx['note'], 0, 120);
+    if (setting('wa_daily', '1') === '1') {
+        $d = one('SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS s FROM transactions WHERE created >= ?', [date('Y-m-d') . ' 00:00:00']);
+        $L[] = '';
+        $L[] = '📊 Hari ini: ' . wa_rp($d['s'] ?? 0) . ' dari ' . (int)($d['n'] ?? 0) . ' transaksi';
+    }
+    return implode("\n", $L);
+}
+function wa_notify_tx(array $tx): void {
+    if (setting('wa_enabled', '0') !== '1') return;
+    $isRet = !empty($tx['return_ref']);
+    if ($isRet && setting('wa_retur', '1') !== '1') return;
+    $min = (float)setting('wa_min_total', '0');
+    if (!$isRet && $min > 0 && (float)$tx['total'] < $min) return;
+    wa_send(wa_tx_message($tx), $tx['invoice']);
+}
+
+function tx_full(int $id): array {
+    $tx = get_row('transactions', $id);
+    $sh = one('SELECT * FROM shipments WHERE transaction_id = ?', [$id]);
+    $tx['shipping'] = $sh ? cast_row('shipments', $sh) : null;
+    return $tx;
+}
+function client_ref(array $in): string {
+    $r = (string)($in['client_ref'] ?? '');
+    return preg_match('/^[A-Za-z0-9-]{8,40}$/', $r) ? $r : '';
+}
+// Cek apakah transaksi dari keranjang ini sudah tersimpan (dipakai setelah halaman dimuat ulang)
+function checkout_status(array $in): ?array {
+    need_auth();
+    $ref = client_ref($in);
+    if ($ref === '') return null;
+    $r = one('SELECT id FROM transactions WHERE client_ref = ?', [$ref]);
+    return $r ? tx_full((int)$r['id']) : null;
+}
 function checkout(array $in): array {
     $u = need_auth();
+    // idempoten: permintaan yang sama (mis. terkirim ulang setelah refresh) tidak membuat transaksi ganda
+    $ref = client_ref($in);
+    if ($ref !== '' && ($dup = one('SELECT id FROM transactions WHERE client_ref = ?', [$ref]))) return tx_full((int)$dup['id']);
     $cart = (array)($in['items'] ?? []);
     $ret = !empty($in['retur']) && is_array($in['retur']) ? $in['retur'] : null;
     if (!$cart && !$ret) fail('Keranjang kosong.');
@@ -609,7 +739,7 @@ function checkout(array $in): array {
             'sales_name' => $sales['name'] ?? '', 'sales_code' => $sales['code'] ?? '', 'commission' => $sales ? $commissionBase : 0,
             'note' => mb_substr(trim((string)($in['note'] ?? '')), 0, 1000),
             'channel' => $channel, 'return_ref' => $orig['invoice'] ?? '', 'return_items' => json_encode($retItems, JSON_UNESCAPED_UNICODE), 'return_amount' => $retAmount,
-            'returned' => '[]',
+            'returned' => '[]', 'client_ref' => $ref,
         ]);
         if ($orig) {
             $list = (array)$orig['returned'];
@@ -645,10 +775,9 @@ function checkout(array $in): array {
         if (db()->inTransaction()) db()->rollBack();
         throw $e;
     }
-    $tx = get_row('transactions', $id);
-    $sh = one('SELECT * FROM shipments WHERE transaction_id = ?', [$id]);
-    $tx['shipping'] = $sh ? cast_row('shipments', $sh) : null;
-    return $tx;
+    $full = tx_full($id);
+    after_response(function () use ($full) { wa_notify_tx($full); });
+    return $full;
 }
 
 function tx_delete(array $in): array {
@@ -947,15 +1076,24 @@ try {
         case 'settings_all': {
             need_admin(); $out = []; foreach (all('SELECT `key`, value FROM settings') as $r) $out[$r['key']] = $r['value']; $out['_my_ip'] = client_ip();
             unset($out['biteship_api_key']);
+            $tk = (string)($out['wa_token'] ?? ''); $out['wa_token'] = $tk === '' ? '' : str_repeat('•', 8) . substr($tk, -4);
             break;
         }
         case 'settings_save': {
             need_admin();
-            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days'];
+            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days', 'wa_enabled', 'wa_provider', 'wa_token', 'wa_targets', 'wa_min_total', 'wa_items', 'wa_daily', 'wa_retur'];
+            if (isset($in['values']['wa_token']) && (strpos((string)$in['values']['wa_token'], '•') !== false)) unset($in['values']['wa_token']); // token tersamar = tidak diubah
+            if (isset($in['values']['wa_provider']) && !in_array($in['values']['wa_provider'], ['fonnte', 'callmebot'], true)) fail('Layanan WhatsApp tidak dikenal.');
             if (isset($in['values']['qris_payload'])) { $qp = trim((string)$in['values']['qris_payload']); if ($qp !== '' && (strpos($qp, '000201') !== 0 || strlen($qp) > 1000)) fail('Kode QRIS tidak valid.'); $in['values']['qris_payload'] = $qp; }
 
             foreach ((array)($in['values'] ?? []) as $k => $v) if (in_array($k, $allowed, true)) set_setting($k, $v);
             $out = public_settings(); break;
+        }
+        case 'wa_test': {
+            need_admin();
+            $r = wa_send("✅ Tes notifikasi WhatsApp dari aplikasi kasir " . setting('store_name', 'toko') . ".\nJika pesan ini masuk, pemberitahuan transaksi sudah siap dipakai.\n" . date('d/m/Y H:i'), 'tes');
+            if (!$r['ok']) fail('Gagal mengirim: ' . $r['info']);
+            $out = $r; break;
         }
         case 'list':   $out = crud_list($in); break;
         case 'get':    { $d = table_def((string)($in['table'] ?? '')); check_perm($d['read']); $out = get_row((string)$in['table'], (int)($in['id'] ?? 0)); break; }
@@ -963,6 +1101,7 @@ try {
         case 'update': $out = crud_update($in); break;
         case 'delete': $out = crud_delete($in); break;
         case 'checkout': $out = checkout($in); break;
+        case 'checkout_status': $out = checkout_status($in); break;
         case 'tx_delete': $out = tx_delete($in); break;
         case 'stock_adjust': $out = stock_adjust($in); break;
         case 'variants_save': $out = variants_save($in); break;
@@ -994,7 +1133,10 @@ try {
         }
         default: fail('Aksi tidak dikenal.', 404);
     }
-    echo json_encode(['ok' => true, 'data' => $out], JSON_UNESCAPED_UNICODE);
+    $body = json_encode(['ok' => true, 'data' => $out], JSON_UNESCAPED_UNICODE);
+    if ($DEFER && !function_exists('fastcgi_finish_request') && !function_exists('litespeed_finish_request')) { header('Content-Length: ' . strlen($body)); header('Connection: close'); }
+    echo $body;
+    run_deferred();
 } catch (ApiError $e) {
     if (db_in_tx()) db()->rollBack();
     http_response_code($e->status);

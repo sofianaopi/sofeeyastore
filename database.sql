@@ -136,9 +136,11 @@ CREATE TABLE IF NOT EXISTS transactions (
   return_items TEXT NULL,
   return_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
   returned TEXT NULL,
+  client_ref VARCHAR(40) NOT NULL DEFAULT '',
   created DATETIME NULL,
   updated DATETIME NULL,
   INDEX idx_tx_created (created),
+  INDEX idx_tx_client_ref (client_ref),
   INDEX idx_tx_sales (sales_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -283,7 +285,7 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('sales_channels', '["Toko","WhatsApp","Instagram","Shopee","TikTok Shop"]', NOW(), NOW()),
  ('size_sets', '["S, M, L, XL","XS, S, M, L, XL, XXL","All size","M, L, XL, XXL, 3XL","27, 28, 29, 30, 31, 32","36, 37, 38, 39, 40"]', NOW(), NOW()),
  ('return_days', '7', NOW(), NOW()),
- ('schema_version', '4', NOW(), NOW());
+ ('schema_version', '5', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());

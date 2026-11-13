@@ -386,26 +386,75 @@ function pickFile() {
 }
 
 // ---------------------------------------------------------------- printer Bluetooth (ESC/POS)
+// Pengaturan printer disimpan di perangkat ini (tidak hilang saat halaman dimuat ulang)
+const PrinterPrefs = {
+  get() { try { return { auto: false, width: 32, ...JSON.parse(localStorage.getItem('pos-printer') || '{}') }; } catch (e) { return { auto: false, width: 32 }; } },
+  set(p) { try { localStorage.setItem('pos-printer', JSON.stringify({ ...this.get(), ...p })); } catch (e) { /* abaikan */ } },
+  forget() { try { const p = this.get(); delete p.id; delete p.name; localStorage.setItem('pos-printer', JSON.stringify(p)); } catch (e) { /* abaikan */ } },
+};
+const BT_SERVICES = [0x18f0, '000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb', '49535343-fe7d-4ae5-8fa9-9fafd205e455', 0xff00, 0xffe0, 0xfee7];
 const Printer = {
-  char: null, device: null, status: 'disconnected', listeners: new Set(),
+  char: null, device: null, status: 'disconnected', listeners: new Set(), manualOff: false, retry: 0,
   supported: typeof navigator !== 'undefined' && !!navigator.bluetooth,
-  set(s) { this.status = s; this.listeners.forEach((f) => f(s)); },
-  async connect() {
+  canRestore: typeof navigator !== 'undefined' && !!(navigator.bluetooth && navigator.bluetooth.getDevices),
+  set(s) { this.status = s; this.listeners.forEach((f) => { try { f(s); } catch (e) { /* abaikan */ } }); },
+  saved() { const p = PrinterPrefs.get(); return p.name || p.id ? p : null; },
+  async attach(dev) {
+    const server = await Promise.race([dev.gatt.connect(), new Promise((_, rej) => setTimeout(() => rej(new Error('Printer tidak merespons. Pastikan printer menyala & dekat.')), 12000))]);
+    let ch = null;
+    for (const svc of await server.getPrimaryServices()) { for (const c of await svc.getCharacteristics()) { if (c.properties.write || c.properties.writeWithoutResponse) { ch = c; break; } } if (ch) break; }
+    if (!ch) throw new Error('Printer tidak menyediakan jalur cetak.');
+    this.char = ch; this.device = dev; this.manualOff = false; this.retry = 0;
+    if (!dev._sfListen) {
+      dev._sfListen = true;
+      // bila koneksi putus (printer mati sebentar / jauh), coba sambung lagi otomatis
+      dev.addEventListener('gattserverdisconnected', () => { this.char = null; this.set('disconnected'); if (!this.manualOff) this.autoRetry(dev); });
+    }
+    PrinterPrefs.set({ id: dev.id, name: dev.name || 'Printer' });
+    this.set('connected');
+  },
+  autoRetry(dev) {
+    if (this.retry >= 4 || this.manualOff) return;
+    const wait = [2000, 5000, 10000, 20000][this.retry++];
+    setTimeout(async () => { if (this.char || this.manualOff) return; try { this.set('connecting'); await this.attach(dev); toast('Printer tersambung lagi', dev.name || '', 'ok'); } catch (e) { this.set('disconnected'); this.autoRetry(dev); } }, wait);
+  },
+  // pilih printer (perlu ketukan pengguna). any=true menampilkan semua perangkat; selain itu hanya printer tersimpan
+  async connect({ any = false } = {}) {
     if (!this.supported) throw new Error('Browser ini tidak mendukung Bluetooth. Gunakan Chrome di Android / PC.');
+    if (this.char) return;
     this.set('connecting');
     try {
-      const dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: [0x18f0, '000018f0-0000-1000-8000-00805f9b34fb', '0000ff00-0000-1000-8000-00805f9b34fb', '49535343-fe7d-4ae5-8fa9-9fafd205e455', 0xff00, 0xffe0] });
-      const server = await dev.gatt.connect();
-      let ch = null;
-      for (const svc of await server.getPrimaryServices()) { for (const c of await svc.getCharacteristics()) { if (c.properties.write || c.properties.writeWithoutResponse) { ch = c; break; } } if (ch) break; }
-      if (!ch) throw new Error('Printer tidak menyediakan jalur cetak.');
-      this.char = ch; this.device = dev;
-      dev.addEventListener('gattserverdisconnected', () => { this.char = null; this.set('disconnected'); });
-      this.set('connected');
+      const sv = this.saved();
+      const opts = !any && sv && sv.name ? { filters: [{ name: sv.name }], optionalServices: BT_SERVICES } : { acceptAllDevices: true, optionalServices: BT_SERVICES };
+      const dev = await navigator.bluetooth.requestDevice(opts);
+      await this.attach(dev);
     } catch (e) { this.set('disconnected'); throw e; }
   },
+  // sambung ulang printer tersimpan tanpa memilih lagi (bila browser mengizinkan)
+  async restore() {
+    if (!this.supported || this.char || !this.canRestore) return false;
+    const sv = this.saved(); if (!sv) return false;
+    try {
+      const devs = await navigator.bluetooth.getDevices();
+      const dev = devs.find((d) => d.id === sv.id) || devs.find((d) => sv.name && d.name === sv.name);
+      if (!dev) return false;
+      this.set('connecting');
+      try { await this.attach(dev); return true; }
+      catch (e) {
+        // printer belum terjangkau: tunggu sinyalnya, lalu sambung
+        if (dev.watchAdvertisements) {
+          const ac = new AbortController();
+          dev.addEventListener('advertisementreceived', async () => { ac.abort(); try { await this.attach(dev); toast('Printer tersambung', dev.name || '', 'ok'); } catch (ex) { this.set('disconnected'); } }, { once: true });
+          try { await dev.watchAdvertisements({ signal: ac.signal }); } catch (ex) { /* abaikan */ }
+          setTimeout(() => ac.abort(), 60000);
+        }
+        this.set('disconnected'); return false;
+      }
+    } catch (e) { this.set('disconnected'); return false; }
+  },
+  async ensure() { if (this.char) return; if (await this.restore()) return; await this.connect(); },
   async print(text) {
-    if (!this.char) await this.connect();
+    await this.ensure();
     const bytes = new TextEncoder().encode(text.normalize('NFKD').replace(/[^\x00-\x7F]/g, ''));
     for (let i = 0; i < bytes.length; i += 180) {
       const chunk = bytes.slice(i, i + 180);
@@ -413,7 +462,10 @@ const Printer = {
       await new Promise((r) => setTimeout(r, 20));
     }
   },
-  disconnect() { try { this.device?.gatt?.disconnect(); } catch (e) { /* abaikan */ } this.char = null; this.set('disconnected'); },
+  // cetak struk transaksi sesuai lebar kertas yang dipilih
+  async printReceipt(trx) { await this.print(escposReceipt(trx, App.settings, PrinterPrefs.get().width || 32)); },
+  disconnect() { this.manualOff = true; try { this.device?.gatt?.disconnect(); } catch (e) { /* abaikan */ } this.char = null; this.set('disconnected'); },
+  async forget() { this.disconnect(); try { if (this.device && this.device.forget) await this.device.forget(); } catch (e) { /* abaikan */ } this.device = null; PrinterPrefs.forget(); this.set('disconnected'); },
 };
 const COURIERS = [
   { id: 'J&T Express', type: 'paket', site: 'https://jet.co.id/track' },

@@ -32,6 +32,34 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 | **Barang lambat laku** | Dashboard | Barang yang masih ada stok tetapi tidak terjual 45 hari, beserta modal yang tertahan. Cocok dijadikan promo cuci gudang. |
 | **Impor varian dari Excel** | Produk & stok → *Impor* | Template baru punya kolom Model, Warna, Ukuran — satu baris per varian. |
 
+## Memori kasir & printer (tidak hilang saat halaman dimuat ulang)
+
+| Yang diingat | Keterangan |
+|---|---|
+| **Keranjang yang belum dibayar** | Barang, member, voucher, biaya, pengiriman, dan retur tersimpan otomatis di perangkat. Setelah refresh / HP restart, keranjang kembali. Harga & stok dicek ulang; barang yang sudah habis dikeluarkan. |
+| **Transaksi saat refresh** | Bila halaman dimuat ulang tepat saat menekan *Selesaikan transaksi*, aplikasi mengecek ke server. Transaksi yang sudah tersimpan tidak akan tercatat dua kali; layar struknya muncul lagi. |
+| **Struk terakhir** | Kasir → tombol printer di atas → *Cetak ulang struk terakhir*. |
+| **Printer Bluetooth** | Printer terakhir diingat. Di Chrome yang mendukung, langsung tersambung lagi otomatis. Bila belum, cukup satu ketukan *Sambungkan* (hanya printer Anda yang muncul), atau aplikasi menyambung sendiri saat mencetak. Bila printer mati sebentar, aplikasi mencoba menyambung ulang. |
+| **Pengaturan cetak** | Menu Printer: *Cetak struk otomatis* dan lebar kertas 58 / 80 mm — disimpan per perangkat. |
+
+Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
+
+## Notifikasi WhatsApp saat ada transaksi
+
+Setiap transaksi masuk (dan tukar/retur bila diaktifkan), HP pemilik menerima pesan WhatsApp berisi invoice, kasir, saluran penjualan, rincian barang, total & cara bayar, member, serta omzet hari ini. Pesan dikirim di belakang layar, jadi kasir **tidak menunggu**.
+
+Atur di **Pengaturan → Notifikasi WhatsApp**, lalu tekan **Kirim tes**.
+
+| Layanan | Cocok untuk | Cara menyiapkan |
+|---|---|---|
+| **Fonnte** | Pemakaian toko, bisa ke beberapa nomor | Daftar di fonnte.com → *Add device* → scan QR memakai WhatsApp nomor **pengirim** (sebaiknya nomor khusus toko) → salin **Token** → tempel di aplikasi → isi nomor penerima. |
+| **CallMeBot** | Gratis, hanya ke nomor Anda sendiri (pemakaian pribadi) | Simpan nomor bot **+34 644 97 54 14** → kirim pesan `I allow callmebot to send me messages` → bot membalas **APIKEY** → tempel di aplikasi dan isi nomor HP yang sama. |
+
+- Token disimpan di server dan ditampilkan tersamar; akun kasir tidak bisa melihatnya.
+- Bisa diatur: total minimal yang dikirim, rincian barang, omzet hari ini, dan pemberitahuan retur.
+- Status pengiriman terakhir (berhasil/gagal + alasannya) tampil di bawah panel.
+- Server Hostinger harus bisa menghubungi internet keluar (cURL aktif) — standar di semua paket Hostinger.
+
 Menu **Info kasir** dan **Rumah tautan** dihapus karena tidak dipakai dalam alur kerja toko.
 
 ## Langkah 0 — PENTING jika domain Anda dipakai website Horizons
@@ -126,6 +154,7 @@ Buka domain di **Chrome Android** → menu ⋮ → **Tambahkan ke layar utama**.
 | "Respons server tidak valid" | Pastikan folder `api/` ikut terunggah dan versi PHP ≥ 7.4 (hPanel → Advanced → PHP Configuration). |
 | Login berhasil lalu langsung keluar lagi | Akses lewat satu alamat saja (pilih dengan atau tanpa `www`) dan gunakan HTTPS. |
 | Absen ditolak "bukan jaringan toko" | IP WiFi toko bisa berubah bila modem restart. Perbarui lewat *Pengaturan toko → Pakai IP ini*. |
+| Tes WhatsApp gagal "token invalid" / "device disconnected" | Salin ulang token dari dashboard Fonnte; pastikan perangkat di Fonnte berstatus *connect* (scan ulang QR bila putus). |
 | Upload foto gagal "Folder uploads/produk tidak dapat dibuat" | Di File Manager buat folder `uploads/produk`, lalu klik kanan → Permissions → **755**. |
 | Ingin melihat pesan error detail | Sementara ubah `'debug' => true` di `api/config.php`, lalu kembalikan ke `false`. |
 

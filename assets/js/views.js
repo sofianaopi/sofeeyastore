@@ -274,7 +274,7 @@ V.laporan = async (page) => {
       ${admin ? `<div class="panel panel-b"><h3>Batalkan transaksi</h3><p class="small muted">Transaksi dihapus dari laporan. Poin member dikembalikan.</p><label class="check"><input type="checkbox" data-restore checked> Kembalikan stok barang</label>${field('Alasan pembatalan', 'reason', '', { placeholder: 'Salah input, retur, dll.' })}<button class="btn danger" data-cancel style="margin-top:10px">Batalkan transaksi</button></div>` : ''}</div></div>`,
       foot: `<button class="btn" data-print>${icon('printer')}Cetak ulang</button>${Printer.supported ? `<button class="btn" data-bt>Printer Bluetooth</button>` : ''}` });
     m.$('[data-print]').onclick = () => printHTML(receiptHTML(t, App.settings));
-    const bt = m.$('[data-bt]'); if (bt) bt.onclick = async () => { try { await Printer.print(escposReceipt(t, App.settings)); toast('Struk dikirim', '', 'ok'); } catch (e) { toastErr(e); } };
+    const bt = m.$('[data-bt]'); if (bt) bt.onclick = async () => { try { await Printer.printReceipt(t); toast('Struk dikirim', '', 'ok'); } catch (e) { if (e.name !== 'NotFoundError') toastErr(e); } };
     const c = m.$('[data-cancel]');
     if (c) c.onclick = async () => {
       if (!(await confirmBox('Batalkan ' + t.invoice + '?', 'Tindakan ini tidak dapat diurungkan.', 'Ya, batalkan'))) return;
@@ -745,6 +745,22 @@ V.pengaturan = async (page) => {
       <div class="panel"><div class="panel-h"><h3>Toko & struk</h3></div><div class="panel-b stack" data-store>
         ${field('Nama toko', 'store_name', s.store_name)}${field('Alamat di struk', 'receipt_address', s.receipt_address)}${field('Telepon / WA', 'receipt_phone', s.receipt_phone)}${field('Catatan bawah baris 1', 'receipt_footer1', s.receipt_footer1)}${field('Catatan bawah baris 2', 'receipt_footer2', s.receipt_footer2)}
         <div><button class="btn primary" data-save-store>Simpan toko & struk</button></div></div></div>
+      <div class="panel" data-wa><div class="panel-h"><div><h3>Notifikasi WhatsApp</h3><span class="small muted">Pesan ke HP pemilik setiap ada transaksi masuk</span></div><span class="chip ${s.wa_enabled === '1' ? 'green' : ''}" data-wa-chip>${s.wa_enabled === '1' ? 'Aktif' : 'Nonaktif'}</span></div><div class="panel-b stack">
+        <label class="row" style="gap:10px;cursor:pointer"><span class="switch"><input type="checkbox" data-wa-on ${s.wa_enabled === '1' ? 'checked' : ''}><span></span></span><b>Kirim pemberitahuan transaksi</b></label>
+        <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Layanan pengirim</div><div class="seg" data-wa-prov><button data-pv="fonnte" class="${(s.wa_provider || 'fonnte') === 'fonnte' ? 'on' : ''}">Fonnte</button><button data-pv="callmebot" class="${s.wa_provider === 'callmebot' ? 'on' : ''}">CallMeBot (gratis)</button></div></div>
+        <div class="wa-help small" data-wa-help></div>
+        ${field('Token / API key', 'wa_token', s.wa_token || '', { attrs: 'autocomplete="off" spellcheck="false"', placeholder: 'Tempel token di sini' })}
+        ${field('Nomor WhatsApp penerima', 'wa_targets', s.wa_targets || '', { placeholder: '0812xxxx, 0813xxxx', hint: 'Pemilik / admin. Beberapa nomor pisahkan dengan koma.' })}
+        ${field('Kirim hanya bila total minimal', 'wa_min_total', s.wa_min_total || '', { numeric: true, hint: 'Kosongkan = semua transaksi dikirim.' })}
+        <div class="stack" style="gap:8px">
+          <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_items" ${s.wa_items !== '0' ? 'checked' : ''}> Sertakan rincian barang</label>
+          <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_daily" ${s.wa_daily !== '0' ? 'checked' : ''}> Sertakan omzet hari ini</label>
+          <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_retur" ${s.wa_retur !== '0' ? 'checked' : ''}> Kirim juga saat tukar / retur</label>
+        </div>
+        <div class="wa-preview" data-wa-prev></div>
+        <p class="small muted" style="margin:0" data-wa-last></p>
+        <div class="row wrap"><button class="btn primary" data-wa-save>Simpan</button><button class="btn" data-wa-test>${icon('wa')}Kirim tes</button></div>
+      </div></div>
       <div class="panel"><div class="panel-h"><h3>Penjualan & tukar barang</h3></div><div class="panel-b stack" data-fash>
         <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Saluran penjualan</div><div class="chipin" data-chs data-ph="Tambah, mis. Lazada lalu Enter"></div><span class="hint">Dipilih kasir saat pembayaran — omzet tiap saluran tampil di Dashboard.</span></div>
         <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Pilihan cepat ukuran</div><div class="chipin" data-szs data-ph="Tambah set, mis. S, M, L lalu Enter"></div><span class="hint">Satu set ukuran per kotak, dipisah koma. Muncul saat membuat model baru.</span></div>
@@ -798,6 +814,51 @@ V.pengaturan = async (page) => {
   const chs = chipInput($('[data-chs]', page), (() => { try { return JSON.parse(s.sales_channels || '[]'); } catch (e) { return []; } })());
   const szs = (() => { let l = []; try { l = JSON.parse(s.size_sets || '[]'); } catch (e) { /* kosong */ } const root = $('[data-szs]', page); let list = l; const draw = () => { root.innerHTML = list.map((x, i) => `<span>${esc(x)}<button type="button" data-rm="${i}" aria-label="Hapus">×</button></span>`).join('') + `<input placeholder="${esc(root.dataset.ph)}">`; const inp = root.querySelector('input'); inp.onkeydown = (e) => { if (e.key === 'Enter' && inp.value.trim()) { e.preventDefault(); list.push(inp.value.trim()); draw(); root.querySelector('input').focus(); } }; }; root.onclick = (e) => { const b = e.target.closest('[data-rm]'); if (b) { list.splice(+b.dataset.rm, 1); draw(); } }; draw(); return { get: () => list }; })();
   $('[data-save-fash]', page).onclick = () => { const c = chs.get(); if (!c.length) { toast('Isi minimal satu saluran penjualan', '', 'err'); return; } save({ sales_channels: JSON.stringify(c), size_sets: JSON.stringify(szs.get()), return_days: String(Math.max(0, num($('[name=return_days]', page).value))) }, 'Pengaturan penjualan disimpan'); };
+  // ---------- notifikasi WhatsApp
+  {
+    const box = $('[data-wa]', page);
+    let prov = s.wa_provider || 'fonnte';
+    const HELP = {
+      fonnte: `<b>Cara pakai Fonnte</b> (gateway WhatsApp Indonesia, ada paket gratis & berbayar):<ol><li>Daftar di <a href="https://fonnte.com" target="_blank" rel="noopener">fonnte.com</a>, lalu <b>Add device</b> dan scan QR dengan WhatsApp nomor <u>pengirim</u> (sebaiknya nomor khusus toko, bukan nomor pribadi).</li><li>Salin <b>Token</b> perangkat dan tempel di bawah.</li><li>Isi nomor <u>penerima</u> (HP pemilik). Bisa lebih dari satu.</li></ol>`,
+      callmebot: `<b>Cara pakai CallMeBot</b> (gratis, khusus pemakaian pribadi, pesan dikirim ke nomor Anda sendiri):<ol><li>Simpan nomor bot <b>+34 644 97 54 14</b> di kontak HP penerima.</li><li>Kirim pesan WhatsApp ke bot: <code>I allow callmebot to send me messages</code></li><li>Bot membalas dengan <b>APIKEY</b> — tempel di bawah, dan isi nomor HP yang sama sebagai penerima.</li></ol>`,
+    };
+    const lastTxt = (raw) => { try { const l = JSON.parse(raw || ''); return l.time ? `Pengiriman terakhir ${fmtDT(l.time)}${l.label ? ' (' + esc(l.label) + ')' : ''}: <b class="${l.ok ? 'money' : 'danger'}">${l.ok ? 'berhasil' : 'gagal'}</b> — ${esc(l.info || '')}` : ''; } catch (e) { return ''; } };
+    const sampleMsg = () => {
+      const o = {}; $$('[data-wa-opt]', box).forEach((c) => { o[c.dataset.waOpt] = c.checked; });
+      return [`🛍️ *Transaksi baru* — ${esc(s.store_name || 'Toko')}`, 'INV261113-1234 · 10:42', 'Kasir: Nisa · Instagram', ...(o.wa_items ? ['', '• Kemeja Kantor Basic - Putih / M ×1 = Rp159.000', '• Pashmina Ceruty - Sage ×2 = Rp90.000'] : []), '', '*Total: Rp249.000* (QRIS)', 'Member: Andi (+24 poin)', ...(o.wa_daily ? ['', '📊 Hari ini: Rp2.450.000 dari 14 transaksi'] : [])].join('<br>').replace(/\*([^*]+)\*/g, '<b>$1</b>');
+    };
+    const draw = () => {
+      $$('[data-pv]', box).forEach((b) => b.classList.toggle('on', b.dataset.pv === prov));
+      $('[data-wa-help]', box).innerHTML = HELP[prov];
+      $('[name=wa_token]', box).closest('label').firstChild.textContent = prov === 'callmebot' ? 'APIKEY dari CallMeBot' : 'Token perangkat Fonnte';
+      $('[data-wa-prev]', box).innerHTML = `<div class="small bold muted" style="margin-bottom:6px">Contoh pesan</div><div class="wa-bubble">${sampleMsg()}</div>`;
+    };
+    $('[data-wa-last]', box).innerHTML = lastTxt(s.wa_last);
+    $('[data-wa-prov]', box).onclick = (e) => { const b = e.target.closest('[data-pv]'); if (b) { prov = b.dataset.pv; draw(); } };
+    box.addEventListener('change', (e) => { if (e.target.dataset.waOpt) draw(); });
+    const vals = () => {
+      const v = { wa_enabled: $('[data-wa-on]', box).checked ? '1' : '0', wa_provider: prov, wa_token: $('[name=wa_token]', box).value.trim(), wa_targets: $('[name=wa_targets]', box).value.trim(), wa_min_total: String(num($('[name=wa_min_total]', box).value) || '') };
+      $$('[data-wa-opt]', box).forEach((c) => { v[c.dataset.waOpt] = c.checked ? '1' : '0'; });
+      return v;
+    };
+    const check = (v) => {
+      if (v.wa_enabled === '1' && !v.wa_token) { toast('Isi token / API key', '', 'err'); return false; }
+      if (v.wa_enabled === '1' && v.wa_targets.replace(/\D/g, '').length < 9) { toast('Isi nomor WhatsApp penerima', '', 'err'); return false; }
+      return true;
+    };
+    const persist = async () => { const v = vals(); if (!check(v)) return false; try { App.settings = await api('settings_save', { values: v }); const c = $('[data-wa-chip]', box); c.textContent = v.wa_enabled === '1' ? 'Aktif' : 'Nonaktif'; c.className = 'chip ' + (v.wa_enabled === '1' ? 'green' : ''); return true; } catch (e) { toastErr(e); return false; } };
+    $('[data-wa-save]', box).onclick = async () => { if (await persist()) toast('Notifikasi WhatsApp disimpan', $('[data-wa-on]', box).checked ? 'Pesan dikirim setiap ada transaksi.' : 'Pemberitahuan dinonaktifkan.', 'ok'); };
+    $('[data-wa-test]', box).onclick = async (e) => {
+      const b = e.currentTarget; const v = vals();
+      if (!v.wa_token || v.wa_targets.replace(/\D/g, '').length < 9) { toast('Isi token dan nomor penerima dulu', '', 'err'); return; }
+      if (!(await persist())) return;
+      b.disabled = true; const old = b.innerHTML; b.textContent = 'Mengirim…';
+      try { const r = await api('wa_test'); toast('Pesan tes terkirim', r.info + ' Cek WhatsApp Anda.', 'ok'); } catch (ex) { toastErr(ex); }
+      try { const all = await api('settings_all'); $('[data-wa-last]', box).innerHTML = lastTxt(all.wa_last); } catch (ex) { /* abaikan */ }
+      b.disabled = false; b.innerHTML = old;
+    };
+    draw();
+  }
   const prev = () => { const v = formValues($('[data-store]', page)); $('[data-prev]', page).innerHTML = receiptHTML(sample, v); };
   $('[data-store]', page).oninput = prev; prev();
   $('[data-test]', page).onclick = () => printHTML(receiptHTML(sample, formValues($('[data-store]', page))));
@@ -840,20 +901,32 @@ V.pengguna = async (page) => {
 V.printer = async (page) => {
   const sample = { invoice: 'TES-PRINTER', created: nowStr(), cashier: App.user.name, items: [{ name: 'Tes cetak', qty: 1, price: 10000 }], subtotal: 10000, discount: 0, total: 10000, payment: 10000, change: 0, payment_method: 'cash' };
   const draw = () => {
-    const s = Printer.status;
-    page.innerHTML = head('Printer', 'Hubungkan printer thermal Bluetooth 58 mm, atau cetak lewat printer biasa / simpan PDF.') + `<div class="grid2" style="align-items:start">
-      <div class="panel"><div class="panel-h"><h3>Printer thermal Bluetooth</h3><span class="chip ${s === 'connected' ? 'green' : s === 'connecting' ? 'amber' : ''}">${s === 'connected' ? 'Terhubung' : s === 'connecting' ? 'Menghubungkan…' : 'Belum terhubung'}</span></div><div class="panel-b stack">
-        ${Printer.supported ? `<p class="small muted" style="margin:0">${s === 'connected' ? 'Printer: <b>' + esc(Printer.device?.name || '-') + '</b>' : 'Nyalakan printer, aktifkan Bluetooth & lokasi HP, lalu tekan Hubungkan.'}</p>
-          <div class="row wrap">${s === 'connected' ? '<button class="btn" data-dis>Putuskan</button><button class="btn primary" data-test>Cetak tes</button>' : '<button class="btn primary" data-con>Hubungkan printer</button>'}</div>
-          <p class="small muted" style="margin:0">Koneksi Bluetooth perlu diulang setiap kali halaman dimuat ulang (aturan keamanan browser).</p>`
+    const s = Printer.status, sv = Printer.saved(), pp = PrinterPrefs.get(), on = s === 'connected';
+    page.innerHTML = head('Printer', 'Hubungkan printer thermal Bluetooth, atau cetak lewat printer biasa / simpan PDF.') + `<div class="grid2" style="align-items:start">
+      <div class="panel"><div class="panel-h"><h3>Printer thermal Bluetooth</h3><span class="chip ${on ? 'green' : s === 'connecting' ? 'amber' : ''}">${on ? 'Terhubung' : s === 'connecting' ? 'Menghubungkan…' : 'Belum terhubung'}</span></div><div class="panel-b stack">
+        ${Printer.supported ? `
+          <div class="row"><span class="thumb xs ph" style="--h:210"><b>${icon('printer')}</b></span><div class="grow"><b>${esc((Printer.device && Printer.device.name) || (sv && sv.name) || 'Belum ada printer')}</b><div class="small muted">${sv ? (on ? 'Siap mencetak' : 'Tersimpan di perangkat ini') : 'Nyalakan printer, aktifkan Bluetooth & lokasi HP, lalu tekan Hubungkan.'}</div></div></div>
+          <div class="row wrap">${on ? '<button class="btn primary" data-test>Cetak tes</button><button class="btn" data-dis>Putuskan</button>' : `<button class="btn primary" data-con>${sv ? 'Sambungkan ' + esc(sv.name) : 'Hubungkan printer'}</button>`}${sv ? '<button class="btn" data-any>Ganti printer</button><button class="btn ghost danger" data-forget>Lupakan</button>' : ''}</div>
+          <p class="small muted" style="margin:0">${Printer.canRestore ? 'Printer yang tersimpan otomatis tersambung lagi saat halaman dibuka atau dimuat ulang.' : 'Printer tersimpan di perangkat ini. Setelah halaman dimuat ulang, browser meminta satu ketukan untuk menyambung lagi — atau aplikasi menyambung sendiri saat Anda pertama kali mencetak.'}</p>`
           : '<p class="danger small" style="margin:0">Browser ini tidak mendukung Web Bluetooth. Gunakan Google Chrome di Android, Windows, atau macOS. iPhone/Safari belum didukung — gunakan cetak biasa.</p>'}
       </div></div>
-      <div class="panel"><div class="panel-h"><h3>Cetak biasa / PDF</h3></div><div class="panel-b stack"><p class="small muted" style="margin:0">Memakai dialog cetak browser — cocok untuk printer thermal USB yang sudah terpasang di Windows, printer kantor, atau simpan sebagai PDF.</p><div><button class="btn" data-web>${icon('printer')}Cetak contoh struk</button></div></div></div></div>`;
-    const b = (s2, f) => { const x = $(s2, page); if (x) x.onclick = f; };
-    b('[data-con]', async () => { try { await Printer.connect(); toast('Printer terhubung', '', 'ok'); } catch (e) { if (e.name !== 'NotFoundError') toastErr(e); } });
+      <div class="stack">
+        <div class="panel"><div class="panel-h"><h3>Pengaturan cetak</h3><span class="small muted">disimpan di perangkat ini</span></div><div class="panel-b stack">
+          <label class="row" style="gap:10px;cursor:pointer"><span class="switch"><input type="checkbox" data-auto ${pp.auto ? 'checked' : ''}><span></span></span><span><b>Cetak struk otomatis</b><div class="small muted">Struk langsung tercetak di printer Bluetooth setiap transaksi selesai.</div></span></label>
+          <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Lebar kertas</div><div class="seg" data-w><button data-wv="32" class="${pp.width !== 48 ? 'on' : ''}">58 mm</button><button data-wv="48" class="${pp.width === 48 ? 'on' : ''}">80 mm</button></div></div>
+        </div></div>
+        <div class="panel"><div class="panel-h"><h3>Cetak biasa / PDF</h3></div><div class="panel-b stack"><p class="small muted" style="margin:0">Memakai dialog cetak browser — cocok untuk printer USB yang terpasang di Windows, printer kantor, atau simpan sebagai PDF.</p><div><button class="btn" data-web>${icon('printer')}Cetak contoh struk</button></div></div></div>
+      </div></div>`;
+    const b = (q, f) => { const x = $(q, page); if (x) x.onclick = f; };
+    const con = async (any) => { try { await Printer.connect({ any }); toast('Printer terhubung', Printer.device?.name || '', 'ok'); } catch (e) { if (e.name !== 'NotFoundError') toastErr(e); } };
+    b('[data-con]', () => con(false));
+    b('[data-any]', async () => { Printer.disconnect(); await con(true); });
     b('[data-dis]', () => Printer.disconnect());
-    b('[data-test]', async () => { try { await Printer.print(escposReceipt(sample, App.settings)); toast('Tes cetak dikirim', '', 'ok'); } catch (e) { toastErr(e); } });
+    b('[data-forget]', async () => { if (await confirmBox('Lupakan printer?', 'Printer tidak akan disambungkan otomatis lagi di perangkat ini.', 'Lupakan')) { await Printer.forget(); toast('Printer dilupakan'); } });
+    b('[data-test]', async () => { try { await Printer.printReceipt(sample); toast('Tes cetak dikirim', '', 'ok'); } catch (e) { toastErr(e); } });
     b('[data-web]', () => printHTML(receiptHTML(sample, App.settings)));
+    const au = $('[data-auto]', page); if (au) au.onchange = () => { PrinterPrefs.set({ auto: au.checked }); toast(au.checked ? 'Cetak otomatis aktif' : 'Cetak otomatis nonaktif'); };
+    const w = $('[data-w]', page); if (w) w.onclick = (e) => { const x = e.target.closest('[data-wv]'); if (!x) return; PrinterPrefs.set({ width: +x.dataset.wv }); draw(); toast('Lebar kertas: ' + x.textContent); };
   };
   Printer.listeners.add(draw); draw();
   return () => Printer.listeners.delete(draw);

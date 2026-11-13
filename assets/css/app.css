@@ -476,3 +476,16 @@ body.d-phone .prod .nm{font-size:12.5px}
 .prod{display:block;min-height:auto!important}
 .prod .pinfo{margin-top:7px}
 .prod .thumb{width:auto}
+/* status printer di kasir */
+.prn-btn{position:relative}
+.prn-dot{position:absolute;top:7px;right:7px;width:9px;height:9px;border-radius:50%;background:#B8C2CF;box-shadow:0 0 0 2px #fff}
+.prn-btn[data-st="connected"] .prn-dot{background:#16A34A}
+.prn-btn[data-st="connecting"] .prn-dot{background:#F2C438;animation:prnblink 1s infinite}
+@keyframes prnblink{50%{opacity:.3}}
+/* notifikasi WhatsApp */
+.wa-help{background:#F4F9F5;border:1px solid #D4EBDB;border-radius:10px;padding:10px 12px;color:var(--ink-2);line-height:1.55}
+.wa-help ol{margin:6px 0 0;padding-left:18px}
+.wa-help li{margin:2px 0}
+.wa-help code{background:#fff;border:1px solid #D4EBDB;border-radius:6px;padding:1px 5px;font-size:12px}
+.wa-preview{background:#ECE5DD;border-radius:12px;padding:12px}
+.wa-bubble{background:#DCF8C6;border-radius:10px 10px 10px 2px;padding:9px 11px;font-size:13px;line-height:1.5;max-width:340px;box-shadow:0 1px 1px rgba(0,0,0,.12);color:#111}
