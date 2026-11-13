@@ -546,3 +546,85 @@ body.d-phone .prod .nm{font-size:12.5px}
 .rj-list button:hover{background:var(--line-2)}
 .rj-list button.on{background:var(--brand-soft);outline:1.5px solid var(--brand)}
 .quick button.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+/* =========================================================
+   ANIMASI MODERN (v14) — halus, cepat, mati otomatis bila
+   pengguna memilih "kurangi gerakan" di HP/komputernya.
+   ========================================================= */
+:root{--ease-out:cubic-bezier(.22,.8,.26,1);--ease-spring:cubic-bezier(.2,.9,.25,1.12)}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes fadeOut{to{opacity:0}}
+@keyframes popIn{0%{opacity:0;transform:scale(.6)}70%{opacity:1;transform:scale(1.06)}100%{transform:scale(1)}}
+@keyframes sheetIn{from{transform:translateY(100%)}to{transform:none}}
+@keyframes shimmer{to{background-position:-200% 0}}
+@keyframes bump{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes flashIn{from{background:var(--brand-soft)}to{background:transparent}}
+@keyframes toastIn{from{opacity:0;transform:translateX(24px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateX(24px) scale(.96)}}
+@keyframes toastBar{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+@keyframes navMark{from{transform:scaleY(0)}to{transform:scaleY(1)}}
+@keyframes drawCheck{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
+
+/* halaman: masuk dengan naik halus, isi muncul berurutan */
+.page.page-in{animation:rise .32s var(--ease-out) both}
+.page.page-in:not(.flush)>*{animation:rise .42s var(--ease-out) both}
+.page.page-in>*:nth-child(2){animation-delay:.04s}.page.page-in>*:nth-child(3){animation-delay:.08s}
+.page.page-in>*:nth-child(4){animation-delay:.12s}.page.page-in>*:nth-child(5){animation-delay:.16s}
+.page.page-in>*:nth-child(n+6){animation-delay:.2s}
+.stats>.stat{animation:rise .45s var(--ease-out) both}
+.stats>.stat:nth-child(2){animation-delay:.05s}.stats>.stat:nth-child(3){animation-delay:.1s}
+.stats>.stat:nth-child(4){animation-delay:.15s}.stats>.stat:nth-child(5){animation-delay:.2s}.stats>.stat:nth-child(n+6){animation-delay:.25s}
+
+/* kerangka saat memuat (pengganti tulisan "Memuat…") */
+.skel-wrap{display:flex;flex-direction:column;gap:14px;padding:4px 0}
+.skel-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.skel{border-radius:12px;background:linear-gradient(90deg,#EEF2F7 0%,#F7F9FC 40%,#EEF2F7 80%);background-size:200% 100%;animation:shimmer 1.2s linear infinite}
+.skel.h{height:30px;width:38%}.skel.b{height:96px}.skel.t{height:320px}
+
+/* tombol: tekan terasa, sorot halus */
+.btn{transition:transform .14s var(--ease-out),box-shadow .2s,background-color .2s,border-color .2s,color .2s}
+.btn:active:not(:disabled){transform:scale(.96)}
+@media (hover:hover){.btn.primary:hover:not(:disabled),.btn.gold:hover:not(:disabled){box-shadow:0 6px 18px rgba(14,86,166,.22);transform:translateY(-1px)}}
+.seg button,.quick button,.vchips button,.paymethods button,.chs button{transition:background-color .2s,color .2s,border-color .2s,box-shadow .2s,transform .14s}
+.quick button:active,.vchips button:active,.paymethods button:active{transform:scale(.95)}
+.paymethods button.on{box-shadow:0 0 0 3px var(--brand-soft)}
+.input,select.input,textarea.input{transition:border-color .2s,box-shadow .2s}
+.input:focus{box-shadow:0 0 0 3px var(--brand-soft)}
+
+/* menu samping: garis penanda halaman aktif */
+.nav a{transition:background-color .2s,color .2s}
+.nav a.on::before{content:"";position:absolute;left:-6px;top:9px;bottom:9px;width:3px;border-radius:3px;background:var(--brand);transform-origin:center;animation:navMark .3s var(--ease-spring) both}
+
+/* kartu produk & statistik: naik sedikit saat disorot */
+.prod,.pcard,.stat{transition:transform .2s var(--ease-out),box-shadow .2s,border-color .2s}
+@media (hover:hover){.prod:hover{transform:translateY(-3px);box-shadow:0 10px 24px rgba(20,35,58,.1);border-color:#D3DCE8}.stat:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(20,35,58,.07)}}
+.prod:active{transform:scale(.97)}
+.grid-enter .prod{animation:rise .42s var(--ease-out) both}
+.grid-enter .prod:nth-child(2){animation-delay:.03s}.grid-enter .prod:nth-child(3){animation-delay:.06s}.grid-enter .prod:nth-child(4){animation-delay:.09s}
+.grid-enter .prod:nth-child(5){animation-delay:.12s}.grid-enter .prod:nth-child(6){animation-delay:.15s}.grid-enter .prod:nth-child(7){animation-delay:.18s}
+.grid-enter .prod:nth-child(8){animation-delay:.21s}.grid-enter .prod:nth-child(n+9){animation-delay:.24s}
+
+/* keranjang: barang baru meluncur masuk, jumlah & total berdenyut */
+.line.is-new{animation:rise .3s var(--ease-out) both,flashIn 1.2s ease-out}
+.line.qty-bump .qty input{animation:bump .3s var(--ease-out)}
+.r.big .bump{display:inline-block;animation:bump .35s var(--ease-out)}
+.cartfab .btn{transition:transform .2s var(--ease-spring)}
+.cartfab.bump .btn{animation:bump .35s var(--ease-out)}
+
+/* modal: muncul memantul halus, menutup dengan memudar */
+.modal-bg{animation:fade .2s ease-out}
+.modal{animation:popIn .32s var(--ease-spring)}
+@keyframes popIn2{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+.modal{animation-name:popIn2}
+.modal-bg.closing{animation:fadeOut .17s ease-in forwards}
+.modal-bg.closing .modal{animation:toastOut .17s ease-in forwards}
+@media(max-width:600px){.modal{animation:sheetIn .32s var(--ease-out)}.modal-bg.closing .modal{animation:sheetIn .2s ease-in reverse forwards}}
+/* transaksi berhasil: centang & nominal muncul memantul */
+.modal .center>.chip.green{animation:popIn .5s var(--ease-spring) .05s both}
+.modal .center>h1{animation:rise .45s var(--ease-out) .15s both}
+.modal .center>.chip.green svg path,.modal .center>.chip.green svg polyline{stroke-dasharray:24;animation:drawCheck .45s ease-out .25s both}
+
+/* notifikasi kecil (toast): masuk dari kanan, garis waktu menyusut */
+.toast{position:relative;overflow:hidden;animation:toastIn .28s var(--ease-spring)}
+.toast::after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.45);transform-origin:left;animation:toastBar var(--life,2.6s) linear forwards}
+.toast.out{animation:toastOut .22s ease-in forwards}
+.stat.still{animation:none!important}

@@ -596,7 +596,7 @@ V.laporan = async (page) => {
         if (!pick) { toast('Pilih barangnya dulu', '', 'err'); return; }
         if (!reason) { toast('Pilih alasan reject', '', 'err'); return; }
         if (!(qty > 0) || qty > pick.stock) { toast('Jumlah tidak valid', `Stok tersedia ${pick.stock}`, 'err'); return; }
-        if (!admin && !(await confirmBox('Simpan barang reject?', `${pick.name} ×${qty} (${reason}). Setelah disimpan hanya admin yang bisa menghapus.`, 'Simpan'))) return;
+        if (!admin && !(await confirmBox('Simpan barang reject?', `${pick.name} ×${qty} (${reason}). Setelah disimpan hanya admin yang bisa menghapus.`, 'Simpan', false))) return;
         try { await api('reject_add', { product_id: pick.id, qty, reason, note: m.$('[name=note]').value }); toast('Barang reject dicatat', `${pick.name} ×${qty} · stok dikurangi`, 'ok'); m.close(); load(P); } catch (ex) { toastErr(ex); }
       };
       setTimeout(() => m.$('[data-s]').focus(), 50);

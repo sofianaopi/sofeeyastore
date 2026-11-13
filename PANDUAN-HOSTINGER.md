@@ -44,6 +44,13 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Tampilan & animasi (versi 14)
+
+Aplikasi kini bergerak lebih halus: halaman muncul dengan naik pelan, angka di dashboard dan laporan "berjalan" ke nilainya, kartu barang terangkat saat disentuh, barang baru meluncur ke keranjang dan total berdenyut saat berubah, jendela (modal) muncul memantul dan menutup memudar, serta notifikasi kecil punya garis waktu.
+
+- Semua animasi dibuat ringan (tanpa pustaka tambahan) sehingga tetap cepat di HP.
+- Bila di pengaturan HP/komputer dipilih **Kurangi gerakan / Reduce motion**, semua animasi otomatis mati dan angka langsung tampil.
+
 ## Laporan keuangan (menu baru)
 
 Menu **Laporan** kini bernama **Laporan keuangan** dan berisi 9 sub menu. Pembaruan database berjalan otomatis saat aplikasi pertama dibuka setelah upload (tidak perlu impor SQL).

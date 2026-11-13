@@ -101,15 +101,59 @@ const db = {
 };
 
 // ---------------------------------------------------------------- toast
+// ---------------------------------------------------------------- animasi
+// Semua animasi mati sendiri bila pengguna memilih "kurangi gerakan".
+const Motion = {
+  reduce: () => !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches),
+  // keluarkan elemen dengan animasi singkat lalu hapus
+  leave(el, cls, ms) { if (!el || !el.isConnected) return; if (Motion.reduce()) { el.remove(); return; } el.classList.add(cls); setTimeout(() => el.remove(), ms); },
+  // jalankan ulang animasi CSS pada elemen
+  replay(el, cls) { if (!el || Motion.reduce()) return; el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); },
+  // angka berjalan dari 0 ke nilainya (Rp2.517.000, 124, 489 pcs, 12,5%)
+  countUp(el, dur = 700, start) {
+    if (!el || el.dataset.counted) return; el.dataset.counted = '1';
+    if (Motion.reduce()) return;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode);
+    nodes.forEach((n) => {
+      const m = n.nodeValue.match(/^(\D*?)(-?)(\d{1,3}(?:\.\d{3})+|\d+)(\D*)$/);
+      if (!m) return;
+      const target = Number(m[3].replace(/\./g, '')); if (!(target >= 5)) return;
+      const t0 = start || performance.now(), fmt = (v) => m[1] + m[2] + Math.round(v).toLocaleString('id-ID') + m[4];
+      const step = (now) => { const u = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - u, 3); n.nodeValue = fmt(target * e); if (u < 1) requestAnimationFrame(step); else n.nodeValue = fmt(target); };
+      n.nodeValue = fmt(0); requestAnimationFrame(step);
+    });
+  },
+  // amati halaman: setiap angka statistik baru langsung berjalan
+  watch(root) {
+    if (!root || root._motion || !window.MutationObserver) return; root._motion = true;
+    // judul|nilai -> waktu mulai animasi. Halaman yang menggambar ulang angka yang sama
+    // melanjutkan animasi yang sedang berjalan; angka yang sama dalam 2,5 dtk tetap diam.
+    const seen = root._seen = new Map();
+    const scan = () => root.querySelectorAll('.stat:not([data-mo])').forEach((st) => {
+      st.dataset.mo = '1';
+      const v = st.querySelector('.v'); if (!v) return;
+      const key = ((st.querySelector('.k') || {}).textContent || '') + '|' + v.textContent, now = performance.now(), t0 = seen.get(key);
+      if (t0 !== undefined && now - t0 < 700) { st.classList.add('still'); Motion.countUp(v, 700, t0); return; }
+      if (t0 !== undefined && now - t0 < 2500) { st.classList.add('still'); v.dataset.counted = '1'; return; }
+      seen.set(key, now); Motion.countUp(v, 700, now);
+    });
+    new MutationObserver(() => requestAnimationFrame(scan)).observe(root, { childList: true, subtree: true });
+  },
+  skeleton: () => '<div class="skel-wrap" aria-label="Memuat"><div class="skel h"></div><div class="skel-row"><div class="skel b"></div><div class="skel b"></div><div class="skel b"></div><div class="skel b"></div></div><div class="skel t"></div></div>',
+};
+
 function toast(title, desc = '', type = '') {
   let box = $('.toasts');
   if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.appendChild(box); }
   const t = document.createElement('div');
   t.className = 'toast ' + type;
   t.innerHTML = esc(title) + (desc ? `<small>${esc(desc)}</small>` : '');
+  const life = type === 'err' ? 4500 : 2600;
+  t.style.setProperty('--life', life + 'ms');
   box.appendChild(t);
   while (box.children.length > 3) box.firstChild.remove();
-  setTimeout(() => t.remove(), type === 'err' ? 4500 : 2600);
+  setTimeout(() => Motion.leave(t, 'out', 220), life);
 }
 const toastErr = (e) => toast(e?.message || String(e), '', 'err');
 
@@ -118,7 +162,8 @@ function modal({ title = '', body = '', foot = '', size = '', onClose } = {}) {
   const bg = document.createElement('div');
   bg.className = 'modal-bg';
   bg.innerHTML = `<div class="modal ${size}" role="dialog" aria-modal="true"><div class="modal-h"><h2>${esc(title)}</h2><button class="btn ghost icon sm" data-x aria-label="Tutup">${icon('x')}</button></div><div class="modal-b">${body}</div>${foot ? `<div class="modal-f">${foot}</div>` : ''}</div>`;
-  const close = () => { bg.remove(); document.removeEventListener('keydown', onKey); onClose && onClose(); };
+  let shut = false;
+  const close = () => { if (shut) return; shut = true; Motion.leave(bg, 'closing', 180); document.removeEventListener('keydown', onKey); onClose && onClose(); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   bg.addEventListener('mousedown', (e) => { if (e.target === bg) close(); });
   $('[data-x]', bg).onclick = close;

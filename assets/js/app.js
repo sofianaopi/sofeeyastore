@@ -190,11 +190,12 @@ const App = {
     if (this.cleanup) { try { this.cleanup(); } catch (e) { /* abaikan */ } this.cleanup = null; }
     const page = $('#page');
     page.className = 'page' + (id === 'kasir' ? ' flush' : '');
-    page.innerHTML = '<div class="empty">Memuat…</div>';
+    page.innerHTML = id === 'kasir' ? '' : Motion.skeleton();
+    Motion.watch(page); page._seen && page._seen.clear(); // halaman baru: angka boleh berjalan lagi
     this.view = id;
     if (id === 'laporan') { this.newTx = []; this.updateBadges(); }
     const v = id === 'kasir' ? Kasir : this.views[id];
-    Promise.resolve(v ? v(page) : null).then((c) => { if (typeof c === 'function') this.cleanup = c; }).catch((e) => { page.innerHTML = `<div class="panel panel-b"><b>Gagal memuat halaman</b><p class="muted">${esc(e.message)}</p></div>`; });
+    Promise.resolve(v ? v(page) : null).then((c) => { if (typeof c === 'function') this.cleanup = c; if (this.view === id) Motion.replay(page, 'page-in'); }).catch((e) => { page.innerHTML = `<div class="panel panel-b"><b>Gagal memuat halaman</b><p class="muted">${esc(e.message)}</p></div>`; });
   },
 
   startPing() {
@@ -286,6 +287,7 @@ async function Kasir(page) {
   const DKEY = 'pos-draft-' + App.user.id, LKEY = 'pos-last-' + App.user.id;
   const newRef = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12));
   let ref = newRef(), pending = false;
+  let seenQty = null, prevTotal = null, gridShown = false; // untuk animasi keranjang & grid
   function saveDraft() {
     try {
       const empty = !st.cart.length && !st.retur && !st.memberId && !st.fees.length && !st.shipping && !st.vouchers.length && !st.reward;
@@ -399,6 +401,7 @@ async function Kasir(page) {
     const list = groups().filter((g) => g.items.some((p) => p.stock > 0) && (st.cat === 'Semua' || g.category === st.cat) &&
       (!q || g.items.some((p) => [p.name, p.barcode, p.model, p.color, p.size].join(' ').toLowerCase().includes(q))));
     if (!list.length) { el('[data-grid]').innerHTML = emptyState(st.products.some((p) => p.stock > 0) ? 'Barang tidak ditemukan.' : (st.products.length ? 'Semua barang sedang habis. Tambah stok di menu Produk & stok.' : 'Belum ada barang. Tambahkan lewat menu Produk & stok.')); return; }
+    if (!gridShown) { gridShown = true; const gEl = el('[data-grid]'); if (!Motion.reduce()) { gEl.classList.add('grid-enter'); setTimeout(() => gEl.classList.remove('grid-enter'), 900); } }
     el('[data-grid]').innerHTML = list.slice(0, 400).map((g) => {
       const avail = g.items.filter((p) => p.stock > 0);
       const stock = avail.reduce((s, p) => s + p.stock, 0);
@@ -470,7 +473,8 @@ async function Kasir(page) {
     const retBlock = st.retur ? `<div class="retblock"><div class="row"><b class="grow">${icon('rotate')} Dikembalikan · ${esc(st.retur.invoice)}</b><button class="btn ghost sm" data-rmret>Batal</button></div>${st.retur.items.map((i) => `<div class="r"><span>${esc(i.name)} × ${i.qty}</span><span>−${rupiah(i.price * i.qty)}</span></div>`).join('')}<div class="small muted">${st.cart.length ? 'Barang pengganti ada di bawah.' : 'Tambahkan barang pengganti (tukar size/warna), atau langsung bayar untuk mengembalikan uang.'}</div></div>` : '';
     el('[data-items]').innerHTML = retBlock + (st.cart.length ? st.cart.map((c) => {
       const ip = r.pc.itemPromo[c.id]; const disc = (ip ? ip.amount : 0) + (c.discount || 0) * c.qty;
-      return `<div class="line"><div class="t"><b>${esc(c.name)}</b><button class="btn ghost icon sm" data-del="${c.id}" aria-label="Hapus">${icon('trash')}</button></div>
+      const fx = !seenQty ? '' : !(c.id in seenQty) ? ' is-new' : seenQty[c.id] !== c.qty ? ' qty-bump' : '';
+      return `<div class="line${fx}"><div class="t"><b>${esc(c.name)}</b><button class="btn ghost icon sm" data-del="${c.id}" aria-label="Hapus">${icon('trash')}</button></div>
         <div class="c"><div class="qty"><button data-dec="${c.id}" aria-label="Kurangi">−</button><input data-qty="${c.id}" value="${c.qty}" inputmode="numeric" aria-label="Jumlah"><button data-inc="${c.id}" aria-label="Tambah">+</button></div>
         <span class="pp">@${rupiah(c.price)}${c.price !== c.original_price ? ' <span class="chip amber">diubah</span>' : ''} <button data-price="${c.id}">ubah</button></span>
         <span class="sum">${disc > 0 ? `<s>${rupiah(c.price * c.qty)}</s>${rupiah(c.price * c.qty - disc)}` : rupiah(c.price * c.qty)}</span></div>
@@ -500,12 +504,14 @@ async function Kasir(page) {
       ${st.fees.map((f) => `<div class="r"><span>${esc(f.label)}</span><span>+${rupiah(f.amount)}</span></div>`).join('')}
       ${st.shipping ? `<div class="r"><span>Ongkir ${esc(st.shipping.courier)}</span><span>${r.shipFee ? '+' + rupiah(r.shipFee) : 'dibayar penerima'}</span></div>` : ''}
       ${r.retAmount ? `<div class="r minus"><span>Barang dikembalikan</span><span>−${rupiah(r.retAmount)}</span></div>` : ''}
-      <div class="r big"><span>${r.total < 0 ? 'Uang dikembalikan' : 'Total'}</span><span>${rupiah(Math.abs(r.total))}</span></div>
+      <div class="r big"><span>${r.total < 0 ? 'Uang dikembalikan' : 'Total'}</span><span${prevTotal !== null && prevTotal !== r.total ? ' class="bump"' : ''}>${rupiah(Math.abs(r.total))}</span></div>
       ${m && eligible.length && !st.reward ? `<button class="btn sm" data-reward style="margin-top:6px;width:100%">${icon('gift')} ${eligible.length} reward poin bisa ditukar</button>` : ''}`;
     el('[data-pay]').disabled = !st.cart.length && !st.retur;
     el('[data-pay]').textContent = r.total < 0 ? 'Kembalikan ' + rupiah(-r.total) : st.retur && r.total === 0 ? 'Selesaikan tukar' : (st.cart.length || st.retur) ? 'Bayar ' + rupiah(r.total) : 'Bayar';
     el('[data-fabcount]').textContent = r.count + ' barang';
     el('[data-fabtotal]').textContent = rupiah(r.total);
+    if (prevTotal !== null && prevTotal !== r.total) Motion.replay(el('.cartfab'), 'bump');
+    seenQty = Object.fromEntries(st.cart.map((c) => [c.id, c.qty])); prevTotal = r.total;
     renderPromos();
   }
   const refresh = () => { renderCart(); renderGrid(); };
