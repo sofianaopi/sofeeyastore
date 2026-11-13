@@ -1,4 +1,4 @@
-/* Sofeeya Store POS — kerangka aplikasi + halaman Kasir */
+/* Aplikasi Kasir — kerangka aplikasi + halaman Kasir */
 'use strict';
 
 const App = {
@@ -79,7 +79,7 @@ const App = {
   // ------------------------------------------------------------ login
   renderLogin() {
     document.body.classList.remove('in-kasir', 'rail-open', 'cart-open'); this.applyLayout();
-    const name = this.settings.store_name || 'Sofeeya Store';
+    const name = this.settings.store_name || 'Toko Anda';
     $('#app').innerHTML = `
     <div class="login">
       <div class="login-art">
@@ -121,7 +121,7 @@ const App = {
 
   // ------------------------------------------------------------ shell
   renderShell() {
-    const u = this.user, name = this.settings.store_name || 'Sofeeya Store';
+    const u = this.user, name = this.settings.store_name || 'Toko Anda';
     const nav = this.NAV.filter((n) => n.sep || n.can(u));
     $('#app').innerHTML = `
     <div class="shell">
@@ -186,7 +186,7 @@ const App = {
     $$('[data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === id));
     const item = this.NAV.find((n) => n.id === id);
     $('[data-title]').textContent = item ? item.label : '';
-    document.title = (item ? item.label + ' — ' : '') + (this.settings.store_name || 'Sofeeya Store');
+    document.title = (item ? item.label + ' — ' : '') + (this.settings.store_name || 'Toko Anda');
     if (this.cleanup) { try { this.cleanup(); } catch (e) { /* abaikan */ } this.cleanup = null; }
     const page = $('#page');
     page.className = 'page' + (id === 'kasir' ? ' flush' : '');
@@ -779,7 +779,7 @@ async function Kasir(page) {
   function doneModal(trx, { reprint = false } = {}) {
     const pp = PrinterPrefs.get();
     const m = modal({ title: reprint ? 'Struk ' + trx.invoice : 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.total < 0 ? `<h1 style="margin-top:10px">Kembalikan uang ${rupiah(-trx.total)}</h1>` : trx.return_ref && trx.total === 0 ? '<h1 style="margin-top:10px">Tukar barang selesai</h1>' : trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
-      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Sofeeya Store'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>${reprint ? 'Tutup' : 'Transaksi baru'}</button>`, onClose: () => { if (!reprint) newSale(); } });
+      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Toko Anda'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>${reprint ? 'Tutup' : 'Transaksi baru'}</button>`, onClose: () => { if (!reprint) newSale(); } });
     m.$('[data-print]').onclick = () => printHTML(receiptHTML(trx, S));
     const btPrint = async () => { try { await Printer.printReceipt(trx); toast('Struk dikirim ke printer', Printer.device?.name || '', 'ok'); } catch (ex) { if (ex.name !== 'NotFoundError') toastErr(ex); } };
     const bt = m.$('[data-bt]'); if (bt) bt.onclick = btPrint;

@@ -1,4 +1,4 @@
-/* Sofeeya Store POS — utilitas inti (tanpa framework) */
+/* Aplikasi Kasir — utilitas inti (tanpa framework) */
 'use strict';
 
 // ---------------------------------------------------------------- ikon (garis, 24px)
@@ -587,7 +587,7 @@ function escposReceipt(trx, s, width = 32) {
   const ESC = '\x1B', GS = '\x1D';
   const L = (ch = '-') => ch.repeat(width) + '\n';
   const R = (a, b) => { a = String(a); b = String(b); const sp = width - a.length - b.length; return sp > 0 ? a + ' '.repeat(sp) + b + '\n' : a + '\n' + ' '.repeat(Math.max(0, width - b.length)) + b + '\n'; };
-  let o = ESC + '@' + ESC + 'a\x01' + ESC + '!\x18' + (s.store_name || 'Sofeeya Store') + '\n' + ESC + '!\x00';
+  let o = ESC + '@' + ESC + 'a\x01' + ESC + '!\x18' + (s.store_name || 'Toko Anda') + '\n' + ESC + '!\x00';
   if (s.receipt_address) o += s.receipt_address + '\n';
   if (s.receipt_phone) o += 'Telp: ' + s.receipt_phone + '\n';
   o += ESC + 'a\x00' + L() + R(trx.invoice, fmtDate(trx.created)) + R('Waktu', fmtTime(trx.created));
@@ -624,7 +624,7 @@ function escposLabel(p) {
 function receiptHTML(trx, s, wide = false) {
   const it = (trx.items || []).map((i) => `<div>${esc(i.name)}</div><div class="r"><span>${i.qty} x ${rupiah(i.price)}</span><span>${rupiah(i.qty * i.price)}</span></div>${i.itemDiscount > 0 ? `<div class="r"><span>&nbsp; Diskon${i.promoName ? ' (' + esc(i.promoName) + ')' : ''}</span><span>-${rupiah(i.itemDiscount)}</span></div>` : ''}`).join('');
   return `<div class="slip ${wide ? 'w80' : ''}">
-    <div class="c big">${esc(s.store_name || 'Sofeeya Store')}</div>
+    <div class="c big">${esc(s.store_name || 'Toko Anda')}</div>
     ${s.receipt_address ? `<div class="c">${esc(s.receipt_address)}</div>` : ''}${s.receipt_phone ? `<div class="c">Telp: ${esc(s.receipt_phone)}</div>` : ''}
     <hr><div class="r"><span>${esc(trx.invoice)}</span><span>${fmtDT(trx.created)}</span></div>
     ${trx.channel && trx.channel !== 'Toko' ? `<div>Pesanan: <b>${esc(trx.channel)}</b></div>` : ''}${trx.cashier ? `<div>Kasir: ${esc(trx.cashier)}</div>` : ''}${trx.sales_name ? `<div>Sales: ${esc(trx.sales_name)}</div>` : ''}${trx.member_name ? `<div>Member: ${esc(trx.member_name)}</div>` : ''}

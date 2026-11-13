@@ -1,4 +1,4 @@
-/* Sofeeya Store POS — halaman-halaman pengelolaan */
+/* Aplikasi Kasir — halaman-halaman pengelolaan */
 'use strict';
 const V = App.views;
 
@@ -918,16 +918,16 @@ V.promo = async (page) => {
 // =====================================================================
 V.member = async (page) => {
   const admin = App.isAdmin();
-  page.innerHTML = head('Member', 'Data pelanggan, poin belanja, dan reward.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar member'], ['reward', 'Reward poin'], ...(admin ? [['set', 'Aturan poin & diskon']] : [])], 'list')}</div><div data-body></div>`;
+  page.innerHTML = head('Member', 'Data pelanggan, poin belanja, dan reward.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar member'], ['reward', 'Reward poin'], ...(admin ? [['set', 'Aturan poin & diskon'], ['broadcast', 'Broadcast WA']] : [])], 'list')}</div><div data-body></div>`;
   const body = $('[data-body]', page);
-  const mform = (m = {}) => `${field('Nama', 'name', m.name)}${field('Nomor HP / WA', 'phone', m.phone, { type: 'tel' })}${field('Email', 'email', m.email, { type: 'email' })}${admin ? `<div class="grid2">${field('Poin', 'points', m.points ?? 0, { numeric: true })}${field('Voucher belanja (Rp)', 'voucher_amount', m.voucher_amount || '', { numeric: true, hint: 'Sekali pakai, otomatis terpotong di kasir.' })}</div>` : ''}`;
+  const mform = (m = {}) => `${field('Nama', 'name', m.name)}${field('Nomor HP / WA', 'phone', m.phone, { type: 'tel' })}${field('Email', 'email', m.email, { type: 'email' })}${admin ? `<div class="grid2">${field('Poin', 'points', m.points ?? 0, { numeric: true })}${field('Voucher belanja (Rp)', 'voucher_amount', m.voucher_amount || '', { numeric: true, hint: 'Sekali pakai, otomatis terpotong di kasir.' })}</div><label class="check"><input type="checkbox" name="no_broadcast" ${m.no_broadcast ? 'checked' : ''}> Tidak mau menerima broadcast WhatsApp</label>` : ''}`;
   async function drawList() {
     const list = await db.list('members');
     body.innerHTML = `<div class="toolbar"><div class="search">${icon('search')}<input class="input" data-q placeholder="Cari nama, HP, email…"></div><button class="btn primary" data-new>${icon('user_plus')}Member baru</button>${admin ? `<button class="btn" data-imp>${icon('upload')}Impor</button><button class="btn" data-exp>${icon('download')}Ekspor</button>` : ''}</div><div data-tbl></div>`;
     const render = () => {
       const q = $('[data-q]', body).value.toLowerCase();
       const l = list.filter((m) => !q || [m.name, m.phone, m.email].join(' ').toLowerCase().includes(q));
-      $('[data-tbl]', body).innerHTML = table([{ label: 'Nama', html: (m) => `<b>${esc(m.name)}</b>` }, { label: 'HP', html: (m) => (m.phone ? `${esc(m.phone)} <a class="small" target="_blank" rel="noopener" href="https://wa.me/${esc(m.phone.replace(/\D/g, '').replace(/^0/, '62'))}">WA</a>` : '-') }, { label: 'Email', get: (m) => m.email || '-' }, { label: 'Poin', num: true, html: (m) => `<b>${fmtNum(m.points)}</b>` }, { label: 'Voucher', html: (m) => (m.voucher_amount > 0 ? `<span class="chip ${m.voucher_used ? '' : 'green'}">${rupiah(m.voucher_amount)}${m.voucher_used ? ' · terpakai' : ''}</span>` : '-') }, { label: 'Terdaftar', get: (m) => fmtDate(m.created) }, ...(admin ? [{ label: '', cls: 'nowrap right', html: (m) => `<button class="btn sm icon" data-edit="${m.id}" aria-label="Ubah">${icon('edit')}</button> <button class="btn sm icon danger" data-del="${m.id}" aria-label="Hapus">${icon('trash')}</button>` }] : [])], l, { empty: 'Belum ada member.', emptyIcon: 'member', maxH: '66vh' });
+      $('[data-tbl]', body).innerHTML = table([{ label: 'Nama', html: (m) => `<b>${esc(m.name)}</b>${m.no_broadcast ? ' <span class="chip">tanpa broadcast</span>' : ''}` }, { label: 'HP', html: (m) => (m.phone ? `${esc(m.phone)} <a class="small" target="_blank" rel="noopener" href="https://wa.me/${esc(m.phone.replace(/\D/g, '').replace(/^0/, '62'))}">WA</a>` : '-') }, { label: 'Email', get: (m) => m.email || '-' }, { label: 'Poin', num: true, html: (m) => `<b>${fmtNum(m.points)}</b>` }, { label: 'Voucher', html: (m) => (m.voucher_amount > 0 ? `<span class="chip ${m.voucher_used ? '' : 'green'}">${rupiah(m.voucher_amount)}${m.voucher_used ? ' · terpakai' : ''}</span>` : '-') }, { label: 'Terdaftar', get: (m) => fmtDate(m.created) }, ...(admin ? [{ label: '', cls: 'nowrap right', html: (m) => `<button class="btn sm icon" data-edit="${m.id}" aria-label="Ubah">${icon('edit')}</button> <button class="btn sm icon danger" data-del="${m.id}" aria-label="Hapus">${icon('trash')}</button>` }] : [])], l, { empty: 'Belum ada member.', emptyIcon: 'member', maxH: '66vh' });
     };
     $('[data-q]', body).oninput = render;
     $('[data-new]', body).onclick = () => crudModal({ title: 'Member baru', fields: mform(), onSave: async (v) => { await db.create('members', v); toast('Member ditambahkan', v.name, 'ok'); drawList(); } });
@@ -964,7 +964,169 @@ V.member = async (page) => {
       <div><button class="btn primary" data-save>Simpan aturan</button></div></div></div>`;
     $('[data-save]', body).onclick = async () => { try { App.settings = await api('settings_save', { values: formValues($('[data-f]', body)) }); toast('Aturan member disimpan', '', 'ok'); } catch (e) { toastErr(e); } };
   }
-  bindTabs(page, (t) => { body.onclick = null; ({ list: drawList, reward: drawReward, set: drawSet })[t](); });
+  // ------------------------------------------------------------- BROADCAST WHATSAPP
+  const BC_DEFAULT = 'Halo kak {nama} 👋\n\nTerima kasih sudah jadi member {toko}. Poin kakak sekarang {poin} poin.\n\n[Tulis info promo di sini, mis. Clearance sampai 50% khusus member, berlaku sampai tanggal ...]\n\nDitunggu di toko ya kak 🤍';
+  const BC_STOP = '\n\nBalas STOP bila tidak ingin menerima info dari {toko}.';
+  const waNum = (p) => { let d = String(p || '').replace(/\D+/g, ''); if (d.startsWith('0')) d = '62' + d.slice(1); else if (d.startsWith('8')) d = '62' + d; return d; };
+  const bcText = (msg, r) => { const first = String(r.name || '').trim().split(/\s+/)[0] || 'kak'; return msg.split('{nama_lengkap}').join(r.name || '').split('{nama}').join(first).split('{poin}').join(fmtNum(r.points || 0)).split('{toko}').join(App.settings.store_name || 'toko kami'); };
+  const bcSent = (rec) => rec.filter((r) => r.status === 'terkirim' || r.status === 'dibuka').length;
+  const BC_CHIP = { antri: ['', 'Antri'], dibuka: ['blue', 'Dibuka di WA'], terkirim: ['green', 'Terkirim'], gagal: ['red', 'Gagal'], dilewati: ['', 'Dilewati'] };
+
+  async function drawBroadcast() {
+    body.innerHTML = '<div class="empty">Memuat…</div>';
+    let list = [];
+    try { list = await db.list('broadcasts'); } catch (e) { body.innerHTML = `<div class="panel panel-b">${esc(e.message)}</div>`; return; }
+    body.innerHTML = `<div class="toolbar"><span class="grow muted">Kirim pesan WhatsApp ke banyak member sekaligus: promo, info koleksi baru, atau pengingat poin.</span><button class="btn primary" data-bnew>${icon('wa')}Broadcast baru</button></div>
+      <div class="ntf-warn" style="margin-bottom:14px">${icon('info')}<span>Agar nomor WhatsApp toko aman: kirim ke member yang memang pernah belanja, beri jeda antar pesan, dan hormati yang membalas STOP (tandai "Tidak mau dihubungi").</span></div>
+      <div data-blist></div>`;
+    $('[data-blist]', body).innerHTML = table([
+      { label: 'Broadcast', html: (b) => `<b>${esc(b.title || 'Tanpa judul')}</b><div class="small muted" style="max-width:420px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.message.split('\n').find((l) => l.trim()) || '')}</div>` },
+      { label: 'Penerima', get: (b) => b.audience || '-' },
+      { label: 'Dibuat', get: (b) => fmtDT(b.created) },
+      { label: 'Terkirim', html: (b) => `<div class="bc-prog"><i style="width:${b.total ? Math.round((b.sent / b.total) * 100) : 0}%"></i></div><span class="small">${fmtNum(b.sent)} / ${fmtNum(b.total)}</span>` },
+      { label: '', cls: 'right nowrap', html: (b) => `<button class="btn sm primary" data-bopen="${b.id}">${b.sent < b.total ? 'Lanjut kirim' : 'Lihat'}</button> <button class="btn sm icon danger" data-bdel="${b.id}" aria-label="Hapus">${icon('trash')}</button>` },
+    ], list, { empty: 'Belum ada broadcast. Tekan "Broadcast baru" untuk mulai.', emptyIcon: 'member' });
+    body.onclick = async (e) => {
+      if (e.target.closest('[data-bnew]')) return newBroadcast();
+      const o = e.target.closest('[data-bopen]'), d = e.target.closest('[data-bdel]');
+      if (o) sender(list.find((b) => b.id === +o.dataset.bopen));
+      if (d && await confirmBox('Hapus broadcast ini?', 'Hanya riwayatnya yang dihapus; pesan yang sudah terkirim tidak ditarik.', 'Hapus')) { await db.remove('broadcasts', +d.dataset.bdel); drawBroadcast(); }
+    };
+  }
+
+  async function newBroadcast() {
+    let members = [], last = {}, spent = {};
+    try {
+      members = await db.list('members');
+      const tx = await db.list('transactions', { from: ymd(addDays(new Date(), -730)), to: ymd(), limit: 50000 });
+      tx.forEach((t) => { if (!t.member_id) return; if (!last[t.member_id] || t.created > last[t.member_id]) last[t.member_id] = t.created; spent[t.member_id] = (spent[t.member_id] || 0) + t.total; });
+    } catch (e) { toastErr(e); return; }
+    const reach = members.filter((m) => waNum(m.phone).length >= 10 && !m.no_broadcast);
+    const skipped = members.length - reach.length;
+    const AUD = [['all', 'Semua member'], ['points', 'Punya poin minimal'], ['lapsed', 'Belum belanja selama (hari)'], ['top', 'Belanja terbanyak (jumlah orang)'], ['pick', 'Pilih sendiri']];
+    const m = modal({ title: 'Broadcast WhatsApp baru', size: 'xwide', body: `<div class="bc-new">
+      <div class="stack">
+        ${field('Judul (hanya untuk catatan)', 'title', '', { placeholder: 'mis. Clearance November' })}
+        <label class="f">Isi pesan<textarea class="input" name="message" rows="9" style="height:auto;padding:10px 12px;line-height:1.5">${esc(BC_DEFAULT)}</textarea></label>
+        <div class="row wrap" style="gap:6px"><span class="small muted">Sisipkan:</span>${[['{nama}', 'Nama depan'], ['{poin}', 'Poin'], ['{toko}', 'Nama toko']].map(([k, l]) => `<button type="button" class="btn sm" data-ins="${k}">${l}</button>`).join('')}</div>
+        <label class="check"><input type="checkbox" data-stop checked> Tambahkan kalimat "Balas STOP bila tidak ingin menerima info"</label>
+        <div class="grid2">
+          <label class="f">Kirim ke<select class="input" data-aud>${AUD.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+          <label class="f" data-pwrap>Nilai<input class="input" data-par inputmode="numeric" value=""></label>
+        </div>
+        <div data-pick class="hidden"><div class="search">${icon('search')}<input class="input" data-pq placeholder="Cari nama member…"></div><div class="bc-pick" data-plist></div></div>
+        <p class="small muted" style="margin:0" data-count></p>
+      </div>
+      <div class="bc-phone"><div class="bc-ph-h">${icon('wa')}<b data-pvname>Pratinjau</b></div><div class="bc-ph-b"><div class="bc-bubble" data-pv></div></div></div>
+    </div>`, foot: '<button class="btn" data-x>Batal</button><button class="btn primary" data-save>Simpan & mulai kirim</button>' });
+    const picked = new Set();
+    const par = m.$('[data-par]'), aud = m.$('[data-aud]');
+    const DEF = { points: 1, lapsed: 60, top: 50 };
+    const recips = () => {
+      const a = aud.value, v = num(par.value);
+      let l = reach;
+      if (a === 'points') l = reach.filter((x) => (x.points || 0) >= v);
+      if (a === 'lapsed') { const lim = ymd(addDays(new Date(), -v)); l = reach.filter((x) => !last[x.id] || last[x.id].slice(0, 10) < lim); }
+      if (a === 'top') l = [...reach].filter((x) => spent[x.id] > 0).sort((p, q) => spent[q.id] - spent[p.id]).slice(0, v || 50);
+      if (a === 'pick') l = reach.filter((x) => picked.has(x.id));
+      return l;
+    };
+    const message = () => m.$('[name=message]').value.trim() + (m.$('[data-stop]').checked ? BC_STOP : '');
+    const update = () => {
+      const a = aud.value;
+      m.$('[data-pwrap]').classList.toggle('hidden', a === 'all' || a === 'pick');
+      m.$('[data-pick]').classList.toggle('hidden', a !== 'pick');
+      const l = recips();
+      m.$('[data-count]').innerHTML = `<b>${fmtNum(l.length)} member</b> akan menerima pesan ini.${skipped ? ` ${fmtNum(skipped)} member tidak diikutkan (tanpa nomor WA atau tidak mau dihubungi).` : ''}`;
+      const r = l[0] || { name: 'Pelanggan', points: 120 };
+      m.$('[data-pvname]').textContent = r.name;
+      m.$('[data-pv]').textContent = bcText(message(), r);
+    };
+    const drawPick = () => {
+      const q = m.$('[data-pq]').value.toLowerCase();
+      m.$('[data-plist]').innerHTML = reach.filter((x) => !q || x.name.toLowerCase().includes(q)).slice(0, 300).map((x) => `<label class="check"><input type="checkbox" data-pid="${x.id}" ${picked.has(x.id) ? 'checked' : ''}> ${esc(x.name)} <span class="small muted">· ${fmtNum(x.points || 0)} poin${last[x.id] ? ' · terakhir ' + fmtDate(last[x.id]) : ''}</span></label>`).join('') || emptyState('Member tidak ditemukan.');
+    };
+    aud.onchange = () => { if (DEF[aud.value] !== undefined) par.value = DEF[aud.value]; if (aud.value === 'pick') drawPick(); update(); };
+    m.$('[name=message]').oninput = update; m.$('[data-stop]').onchange = update; par.oninput = update;
+    m.$('[data-pq]').oninput = drawPick;
+    m.$('[data-plist]').onchange = (e) => { const c = e.target.closest('[data-pid]'); if (!c) return; c.checked ? picked.add(+c.dataset.pid) : picked.delete(+c.dataset.pid); update(); };
+    m.el.addEventListener('click', (e) => { const b = e.target.closest('[data-ins]'); if (!b) return; const ta = m.$('[name=message]'); const s = ta.selectionStart ?? ta.value.length; ta.value = ta.value.slice(0, s) + b.dataset.ins + ta.value.slice(ta.selectionEnd ?? s); ta.focus(); update(); });
+    m.$('[data-x]').onclick = () => m.close();
+    m.$('[data-save]').onclick = async () => {
+      const l = recips(), msg = message();
+      if (!msg || msg === BC_STOP.trim()) { toast('Isi pesannya dulu', '', 'err'); return; }
+      if (/\[Tulis info promo/.test(msg)) { toast('Ganti dulu teks dalam kurung [ ]', 'Isi dengan info promo Anda.', 'err'); return; }
+      if (!l.length) { toast('Belum ada penerima', 'Ubah pilihan "Kirim ke".', 'err'); return; }
+      const label = AUD.find((x) => x[0] === aud.value)[1] + (aud.value !== 'all' && aud.value !== 'pick' ? ' ' + num(par.value) : '');
+      try {
+        const b = await db.create('broadcasts', { title: m.$('[name=title]').value.trim(), message: msg, audience: label + ' · ' + l.length + ' orang', recipients: l.map((x) => ({ id: x.id, name: x.name, phone: x.phone, points: x.points || 0, status: 'antri' })), total: l.length, sent: 0, user_name: App.user.name });
+        m.close(); drawBroadcast(); sender(b);
+      } catch (e) { toastErr(e); }
+    };
+    update();
+  }
+
+  async function sender(b) {
+    let s = {}; try { s = await api('settings_all'); } catch (e) { /* abaikan */ }
+    const canAuto = (s.wa_provider || 'fonnte') === 'fonnte' && !!s.wa_token;
+    let mode = 'manual', timer = null, running = false, wait = 30;
+    const m = modal({ title: b.title || 'Broadcast WhatsApp', size: 'xwide', body: `<div class="stack">
+      <div class="row wrap" style="gap:12px"><div class="grow"><div class="bc-prog big"><i data-bar></i></div></div><b data-prog></b></div>
+      ${tabs([['manual', 'Kirim lewat WhatsApp (gratis)'], ['auto', 'Kirim otomatis (Fonnte)']], 'manual')}
+      <div data-mode></div>
+      <details class="bc-list"><summary>Daftar penerima</summary><div data-rlist></div></details>
+    </div>`, onClose: () => { running = false; clearTimeout(timer); drawBroadcast(); } });
+    const save = async () => { b.sent = bcSent(b.recipients); await db.update('broadcasts', b.id, { recipients: b.recipients, sent: b.sent }); };
+    const nextIdx = () => b.recipients.findIndex((r) => r.status === 'antri' || (mode === 'auto' && r.status === 'dibuka' && false));
+    const head2 = () => {
+      const done = bcSent(b.recipients), pct = b.total ? Math.round((done / b.total) * 100) : 0;
+      m.$('[data-bar]').style.width = pct + '%';
+      m.$('[data-prog]').textContent = `${fmtNum(done)} dari ${fmtNum(b.total)} terkirim`;
+      m.$('[data-rlist]').innerHTML = table([{ label: 'Member', get: (r) => r.name }, { label: 'Nomor', get: (r) => r.phone }, { label: 'Status', html: (r) => { const c = BC_CHIP[r.status] || BC_CHIP.antri; return `<span class="chip ${c[0]}">${c[1]}</span>${r.info && r.status === 'gagal' ? `<div class="small muted">${esc(r.info)}</div>` : ''}`; } }], b.recipients, { maxH: '40vh' });
+    };
+    const drawManual = () => {
+      const i = nextIdx(), box = m.$('[data-mode]');
+      if (i < 0) { box.innerHTML = `<div class="panel panel-b center"><h3 style="margin:0 0 6px">Semua penerima sudah diproses 🎉</h3><p class="muted" style="margin:0">Pesan yang "Dibuka di WA" dianggap terkirim bila Anda menekan kirim di WhatsApp.</p></div>`; return; }
+      const r = b.recipients[i], text = bcText(b.message, r);
+      box.innerHTML = `<div class="bc-send">
+        <div class="bc-phone small"><div class="bc-ph-h">${icon('wa')}<b>${esc(r.name)}</b></div><div class="bc-ph-b"><div class="bc-bubble">${esc(text)}</div></div></div>
+        <div class="stack">
+          <p style="margin:0" class="muted">Berikutnya (${i + 1} dari ${b.total}):</p>
+          <h2 style="margin:0">${esc(r.name)}</h2><p style="margin:0" class="muted">${esc(r.phone)} · ${fmtNum(r.points || 0)} poin</p>
+          <a class="btn primary bc-go" data-go href="https://api.whatsapp.com/send?phone=${waNum(r.phone)}&text=${encodeURIComponent(text)}" target="_blank" rel="noopener">${icon('wa')}Buka WhatsApp & kirim</a>
+          <p class="small muted" style="margin:0">WhatsApp terbuka dengan pesan sudah terisi. Tekan kirim di WhatsApp, lalu kembali ke sini untuk penerima berikutnya.</p>
+          <div class="row wrap"><button class="btn" data-skip>Lewati</button><button class="btn" data-optout>Tidak mau dihubungi</button></div>
+        </div></div>`;
+      box.querySelector('[data-go]').onclick = () => { r.status = 'dibuka'; r.at = nowStr(); save().catch(toastErr); setTimeout(() => { head2(); drawManual(); }, 300); };
+      box.querySelector('[data-skip]').onclick = async () => { r.status = 'dilewati'; await save(); head2(); drawManual(); };
+      box.querySelector('[data-optout]').onclick = async () => { if (!(await confirmBox('Tandai ' + r.name + ' tidak mau dihubungi?', 'Member ini tidak akan masuk broadcast berikutnya.', 'Tandai', false))) return; try { await db.update('members', r.id, { no_broadcast: true }); } catch (e) { /* member mungkin sudah dihapus */ } r.status = 'dilewati'; await save(); head2(); drawManual(); };
+    };
+    const drawAuto = () => {
+      const box = m.$('[data-mode]');
+      if (!canAuto) { box.innerHTML = `<div class="panel panel-b"><p style="margin:0 0 8px"><b>Kirim otomatis memerlukan layanan Fonnte</b> (berbayar, nomor WhatsApp toko disambungkan ke Fonnte).</p><p class="muted" style="margin:0">Isi token Fonnte di <b>Pengaturan toko → Notifikasi transaksi → WhatsApp</b>. Tanpa itu, pakai cara "Kirim lewat WhatsApp (gratis)".</p></div>`; return; }
+      box.innerHTML = `<div class="panel panel-b stack">
+        <p style="margin:0">Aplikasi mengirim satu per satu lewat Fonnte dengan jeda. <b>Biarkan halaman ini terbuka</b> sampai selesai.</p>
+        <div class="row wrap" style="gap:10px"><label class="f" style="width:auto">Jeda antar pesan<select class="input" data-wait>${[15, 30, 45, 60].map((x) => `<option value="${x}" ${x === wait ? 'selected' : ''}>${x} detik</option>`).join('')}</select></label>
+        <button class="btn primary" data-run>${running ? 'Jeda' : 'Mulai kirim otomatis'}</button><span class="muted" data-cd></span></div>
+        <p class="small muted" style="margin:0">Saran: kirim paling banyak ±100 pesan per hari dan jeda 30 detik atau lebih, agar WhatsApp tidak menganggapnya spam.</p></div>`;
+      box.querySelector('[data-wait]').onchange = (e) => { wait = +e.target.value; };
+      box.querySelector('[data-run]').onclick = () => { running = !running; clearTimeout(timer); drawAuto(); if (running) step(); };
+    };
+    const step = async () => {
+      if (!running) return;
+      const i = b.recipients.findIndex((r) => r.status === 'antri');
+      if (i < 0) { running = false; toast('Broadcast selesai', `${bcSent(b.recipients)} dari ${b.total} terkirim`, 'ok'); drawAuto(); head2(); return; }
+      try { const res = await api('broadcast_send', { id: b.id, index: i }); const r = b.recipients[i]; r.status = res.status; r.info = res.info; r.at = nowStr(); }
+      catch (e) { toastErr(e); running = false; drawAuto(); return; }
+      head2();
+      let left = wait; const cd = () => { const el = m.$('[data-cd]'); if (el) el.textContent = running ? `Pesan berikutnya dalam ${left} detik…` : ''; };
+      const tick = () => { if (!running) { cd(); return; } if (left <= 0) { step(); return; } cd(); left--; timer = setTimeout(tick, 1000); };
+      tick();
+    };
+    bindTabs(m.el, (t) => { mode = t; running = false; clearTimeout(timer); t === 'manual' ? drawManual() : drawAuto(); });
+    head2(); drawManual();
+  }
+  bindTabs(page, (t) => { body.onclick = null; ({ list: drawList, reward: drawReward, set: drawSet, broadcast: drawBroadcast })[t](); });
   await drawList();
 };
 
@@ -1257,7 +1419,7 @@ V.pengiriman = async (page) => {
   let list = [], tab = 'baru';
   page.innerHTML = head('Pengiriman', 'Pesanan yang dikirim lewat J&T, JNE, Grab, GoSend, Maxim, atau kurir toko.') + `<div class="row wrap" style="justify-content:space-between;margin-bottom:12px"><div data-tabwrap></div><div class="search" style="min-width:240px">${icon('search')}<input class="input" data-q placeholder="Cari nama, HP, resi, invoice…"></div></div><div data-body></div>`;
   const body = $('[data-body]', page);
-  const msg = (sh) => `Halo ${sh.recipient}, pesanan Anda dari ${App.settings.store_name || 'Sofeeya Store'} (${sh.invoice}) ${sh.status === 'selesai' ? 'sudah diterima. Terima kasih telah berbelanja!' : `sudah dikirim via ${sh.courier}.`}${sh.resi && sh.status !== 'selesai' ? `\nNo. resi / pelacakan: ${sh.resi}` : ''}${trackURL(sh) && sh.status !== 'selesai' ? `\nLacak: ${trackURL(sh)}` : ''}`;
+  const msg = (sh) => `Halo ${sh.recipient}, pesanan Anda dari ${App.settings.store_name || 'Toko Anda'} (${sh.invoice}) ${sh.status === 'selesai' ? 'sudah diterima. Terima kasih telah berbelanja!' : `sudah dikirim via ${sh.courier}.`}${sh.resi && sh.status !== 'selesai' ? `\nNo. resi / pelacakan: ${sh.resi}` : ''}${trackURL(sh) && sh.status !== 'selesai' ? `\nLacak: ${trackURL(sh)}` : ''}`;
   const load = async () => { list = await db.list('shipments', { limit: 1000 }); draw(); };
   const draw = () => {
     const counts = Object.fromEntries(Object.keys(ST).map((k) => [k, list.filter((x) => x.status === k).length]));
@@ -1290,7 +1452,7 @@ V.pengiriman = async (page) => {
     if (g('copy')) { const txt = `${sh.recipient} (${sh.phone})\n${sh.address}`; try { await navigator.clipboard.writeText(txt); toast('Alamat disalin', 'Tempel di aplikasi kurir.', 'ok'); } catch (ex) { prompt('Salin alamat:', txt); } }
     if (g('send')) crudModal({ title: 'Nomor resi / link pelacakan', fields: `<p class="muted" style="margin:0">${esc(sh.courier)} · ${esc(sh.recipient)}</p>${field(courierInfo(sh.courier).type === 'paket' ? 'Nomor resi' : 'Link pelacakan / nama & plat driver', 'resi', sh.resi, { hint: courierInfo(sh.courier).type === 'paket' ? 'Resi dari J&T/JNE/SiCepat bisa dilacak otomatis.' : 'Salin link "bagikan perjalanan" dari aplikasi Grab/Gojek/Maxim.' })}`, onSave: async (v) => { await db.update('shipments', id, { resi: v.resi, status: 'dikirim' }); toast('Pesanan ditandai dikirim', sh.recipient, 'ok'); load(); } });
     if (g('done')) { await db.update('shipments', id, { status: 'selesai' }); toast('Pesanan diterima', sh.recipient, 'ok'); load(); }
-    if (g('label')) printHTML(`<div style="width:95mm;border:2px solid #000;padding:4mm;font-family:Arial,sans-serif;font-size:11pt"><div style="display:flex;justify-content:space-between;font-weight:700"><span>${esc(sh.courier)}</span><span>${esc(sh.invoice)}</span></div><hr><div style="font-size:9pt">Penerima</div><div style="font-size:14pt;font-weight:700">${esc(sh.recipient)}</div><div>${esc(sh.phone)}</div><div style="margin-top:2mm">${esc(sh.address)}</div>${sh.note ? `<div style="margin-top:2mm;font-size:9pt">Catatan: ${esc(sh.note)}</div>` : ''}<hr><div style="font-size:9pt">Pengirim: ${esc(App.settings.store_name || 'Sofeeya Store')} ${esc(App.settings.receipt_phone || '')}</div>${sh.resi && courierInfo(sh.courier).type === 'paket' ? `<div style="margin-top:2mm;height:14mm">${code128SVG(sh.resi)}</div><div style="text-align:center;font-size:9pt">${esc(sh.resi)}</div>` : ''}</div>`);
+    if (g('label')) printHTML(`<div style="width:95mm;border:2px solid #000;padding:4mm;font-family:Arial,sans-serif;font-size:11pt"><div style="display:flex;justify-content:space-between;font-weight:700"><span>${esc(sh.courier)}</span><span>${esc(sh.invoice)}</span></div><hr><div style="font-size:9pt">Penerima</div><div style="font-size:14pt;font-weight:700">${esc(sh.recipient)}</div><div>${esc(sh.phone)}</div><div style="margin-top:2mm">${esc(sh.address)}</div>${sh.note ? `<div style="margin-top:2mm;font-size:9pt">Catatan: ${esc(sh.note)}</div>` : ''}<hr><div style="font-size:9pt">Pengirim: ${esc(App.settings.store_name || 'Toko Anda')} ${esc(App.settings.receipt_phone || '')}</div>${sh.resi && courierInfo(sh.courier).type === 'paket' ? `<div style="margin-top:2mm;height:14mm">${code128SVG(sh.resi)}</div><div style="text-align:center;font-size:9pt">${esc(sh.resi)}</div>` : ''}</div>`);
     if (g('edit')) crudModal({ title: 'Ubah pengiriman', size: 'wide', fields: `<div class="grid2"><label class="f">Kurir<select class="input" name="courier">${COURIERS.map((c) => `<option ${c.id === sh.courier ? 'selected' : ''}>${esc(c.id)}</option>`).join('')}</select></label><label class="f">Status<select class="input" name="status">${Object.entries(ST).map(([k, [l]]) => `<option value="${k}" ${k === sh.status ? 'selected' : ''}>${l}</option>`).join('')}</select></label>${field('Nama penerima', 'recipient', sh.recipient)}${field('No. HP', 'phone', sh.phone)}</div><label class="f">Alamat<textarea class="input" name="address">${esc(sh.address)}</textarea></label><div class="grid2">${field('Ongkir (Rp)', 'fee', sh.fee, { numeric: true, hint: 'Hanya catatan; total transaksi tidak berubah.' })}${field('Resi / link', 'resi', sh.resi)}</div>${field('Catatan', 'note', sh.note)}`, onSave: async (v) => { await db.update('shipments', id, v); load(); } });
   };
   await load();

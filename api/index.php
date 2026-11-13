@@ -1,6 +1,6 @@
 <?php
 /**
- * Sofeeya Store POS — REST API (PHP 7.4+ / 8.x, MySQL / MariaDB)
+ * Aplikasi Kasir — REST API (PHP 7.4+ / 8.x, MySQL / MariaDB)
  * Semua request: POST api/index.php?a=<aksi>   body JSON
  */
 declare(strict_types=1);
@@ -58,7 +58,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 7) return;
+    if ($v >= 8) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -115,7 +115,13 @@ function migrate(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS expenses (
         id $pk, expense_date DATE NULL, category VARCHAR(80) NOT NULL DEFAULT '', amount DECIMAL(14,2) NOT NULL DEFAULT 0,
         note VARCHAR(300) NOT NULL DEFAULT '', user_name VARCHAR(200) NOT NULL DEFAULT '', created DATETIME NULL, updated DATETIME NULL)$tail");
-    $setDefault('schema_version', '7', true);
+    // v8: broadcast WhatsApp ke member
+    $addCol('members', 'no_broadcast', 'INT NOT NULL DEFAULT 0');
+    $pdo->exec("CREATE TABLE IF NOT EXISTS broadcasts (
+        id $pk, title VARCHAR(200) NOT NULL DEFAULT '', message TEXT NULL, audience VARCHAR(200) NOT NULL DEFAULT '',
+        recipients LONGTEXT NULL, total INT NOT NULL DEFAULT 0, sent INT NOT NULL DEFAULT 0, user_name VARCHAR(200) NOT NULL DEFAULT '',
+        created DATETIME NULL, updated DATETIME NULL)$tail");
+    $setDefault('schema_version', '8', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -179,7 +185,7 @@ $TABLES = [
         'required' => ['name'], 'search' => ['name', 'barcode', 'category', 'model', 'color'], 'read' => 'auth', 'write' => 'admin', 'order' => 'name'],
     'promos' => ['fields' => ['name' => 's', 'type' => 's', 'value' => 'n', 'min_purchase' => 'n', 'min_price' => 'n', 'max_price' => 'n', 'buy_qty' => 'i', 'free_qty' => 'i', 'free_category' => 's', 'categories' => 'j', 'product_ids' => 'j', 'free_product_ids' => 'j', 'code' => 's', 'stackable' => 'b', 'active' => 'b', 'start_date' => 'd', 'end_date' => 'd', 'badge_text' => 's', 'badge_color' => 's'],
         'required' => ['name', 'type'], 'search' => ['name', 'code'], 'read' => 'auth', 'write' => 'promo', 'order' => 'name'],
-    'members' => ['fields' => ['name' => 's', 'phone' => 's', 'email' => 's', 'points' => 'i', 'voucher_amount' => 'n', 'voucher_used' => 'b'],
+    'members' => ['fields' => ['name' => 's', 'phone' => 's', 'email' => 's', 'points' => 'i', 'voucher_amount' => 'n', 'voucher_used' => 'b', 'no_broadcast' => 'b'],
         'required' => ['name'], 'search' => ['name', 'phone', 'email'], 'read' => 'auth', 'write' => 'admin', 'create' => 'auth', 'order' => 'name'],
     'point_rewards' => ['fields' => ['name' => 's', 'type' => 's', 'points_required' => 'i', 'discount_amount' => 'n', 'product_name' => 's', 'product_barcode' => 's', 'active' => 'b'],
         'required' => ['name'], 'search' => ['name'], 'read' => 'auth', 'write' => 'admin', 'order' => 'points_required'],
@@ -192,6 +198,8 @@ $TABLES = [
     'transactions' => ['fields' => ['invoice' => 's', 'items' => 'j', 'subtotal' => 'n', 'discount' => 'n', 'fee' => 'n', 'fee_note' => 's', 'total' => 'n', 'payment' => 'n', 'change' => 'n', 'profit' => 'n', 'promo_name' => 's', 'item_count' => 'i', 'member_id' => 'i', 'member_name' => 's', 'points_earned' => 'i', 'points_used' => 'i', 'member_points_after' => 'i', 'cashier' => 's', 'cashier_id' => 'i', 'payment_method' => 's', 'sales_name' => 's', 'sales_code' => 's', 'commission' => 'n', 'note' => 's', 'channel' => 's', 'return_ref' => 's', 'return_items' => 'j', 'return_amount' => 'n', 'returned' => 'j'],
         'updatable' => ['sales_name', 'sales_code', 'commission', 'note'],
         'search' => ['invoice', 'member_name', 'cashier', 'sales_name', 'channel', 'return_ref'], 'read' => 'auth', 'write' => 'admin', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
+    'broadcasts' => ['fields' => ['title' => 's', 'message' => 's', 'audience' => 's', 'recipients' => 'j', 'total' => 'i', 'sent' => 'i', 'user_name' => 's'],
+        'required' => ['message'], 'search' => ['title', 'message'], 'read' => 'admin', 'write' => 'admin', 'create' => 'admin', 'delete' => 'admin', 'order' => '-created'],
     'rejects' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'category' => 's', 'qty' => 'i', 'cost' => 'n', 'reason' => 's', 'note' => 's', 'user_id' => 'i', 'user_name' => 's'],
         'search' => ['product_name', 'barcode', 'reason', 'note', 'user_name'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
     'expenses' => ['fields' => ['expense_date' => 'd', 'category' => 's', 'amount' => 'n', 'note' => 's', 'user_name' => 's'],
@@ -382,7 +390,7 @@ function public_settings(): array {
     $keys = ['store_name', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days'];
     $out = [];
     foreach (all('SELECT `key`, value FROM settings') as $r) if (in_array($r['key'], $keys, true)) $out[$r['key']] = $r['value'];
-    $out['store_name'] = $out['store_name'] ?? 'Sofeeya Store';
+    $out['store_name'] = $out['store_name'] ?? 'Toko Anda';
     return $out;
 }
 
@@ -663,6 +671,44 @@ function wa_send(string $text, string $label = ''): array {
     }
     set_setting('wa_last', json_encode(['time' => now(), 'ok' => $res['ok'], 'info' => $res['info'], 'label' => $label], JSON_UNESCAPED_UNICODE));
     return $res;
+}
+// broadcast: isi pesan untuk satu member ({nama}, {poin}, {toko})
+function broadcast_text(string $msg, array $r): string {
+    $first = trim(explode(' ', trim((string)($r['name'] ?? '')))[0] ?? '');
+    return strtr($msg, ['{nama}' => $first !== '' ? $first : 'kak', '{nama_lengkap}' => (string)($r['name'] ?? ''), '{poin}' => number_format((int)($r['points'] ?? 0), 0, ',', '.'), '{toko}' => (string)setting('store_name', 'toko kami')]);
+}
+// kirim broadcast ke SATU penerima lewat Fonnte; aplikasi memanggil ini bergiliran dengan jeda
+function broadcast_send_one(array $in): array {
+    global $CONFIG;
+    if (!empty($CONFIG['demo'])) fail('Pengiriman otomatis tidak aktif di versi demo.');
+    if ((string)setting('wa_provider', 'fonnte') !== 'fonnte' || trim((string)setting('wa_token', '')) === '') fail('Kirim otomatis butuh token Fonnte di Pengaturan toko → Notifikasi transaksi → WhatsApp.');
+    $last = (int)setting('broadcast_last_ts', '0');
+    if (time() - $last < 8) fail('Terlalu cepat. Beri jeda minimal 8 detik antar pesan agar nomor WhatsApp aman.');
+    $b = get_row('broadcasts', (int)($in['id'] ?? 0));
+    $i = (int)($in['index'] ?? -1);
+    $rec = $b['recipients'];
+    if (!isset($rec[$i])) fail('Penerima tidak ditemukan.');
+    $r = $rec[$i];
+    if (($r['status'] ?? '') === 'terkirim') return ['ok' => true, 'status' => 'terkirim', 'sent' => (int)$b['sent']];
+    $m = one('SELECT no_broadcast FROM members WHERE id = ?', [(int)($r['id'] ?? 0)]);
+    if ($m && (int)$m['no_broadcast'] === 1) { $r['status'] = 'dilewati'; $ok = false; $info = 'Member memilih tidak menerima broadcast.'; }
+    else {
+        set_setting('broadcast_last_ts', (string)time());
+        $phone = wa_phone((string)($r['phone'] ?? ''));
+        if (strlen($phone) < 10) { $ok = false; $info = 'Nomor tidak valid.'; }
+        else {
+            [$code, $body] = wa_http(getenv('POS_WA_TEST_URL') ?: 'https://api.fonnte.com/send', ['target' => $phone, 'message' => broadcast_text((string)$b['message'], $r), 'countryCode' => '62'], ['Authorization: ' . trim((string)setting('wa_token', ''))]);
+            $j = json_decode($body, true);
+            $ok = $code === 200 && is_array($j) && !empty($j['status']);
+            $info = $ok ? 'Terkirim' : 'Fonnte: ' . (is_array($j) ? (string)($j['reason'] ?? $j['detail'] ?? 'gagal') : ($code ? 'HTTP ' . $code : $body));
+        }
+        $r['status'] = $ok ? 'terkirim' : 'gagal';
+    }
+    $r['at'] = now(); $r['info'] = $info;
+    $rec[$i] = $r;
+    $sent = count(array_filter($rec, fn($x) => ($x['status'] ?? '') === 'terkirim' || ($x['status'] ?? '') === 'dibuka'));
+    q('UPDATE broadcasts SET recipients = ?, sent = ?, updated = ? WHERE id = ?', [json_encode($rec, JSON_UNESCAPED_UNICODE), $sent, now(), $b['id']]);
+    return ['ok' => $ok, 'status' => $r['status'], 'info' => $info, 'sent' => $sent];
 }
 function wa_rp($n): string { return ($n < 0 ? '-' : '') . 'Rp' . number_format(abs((float)$n), 0, ',', '.'); }
 function wa_tx_message(array $tx): string {
@@ -1334,6 +1380,7 @@ try {
         case 'push_unsubscribe': $out = push_action('unsubscribe', $in); break;
         case 'push_list': $out = push_action('list', $in); break;
         case 'push_test': $out = push_action('test', $in); break;
+        case 'broadcast_send': need_admin(); $out = broadcast_send_one($in); break;
         case 'wa_test': {
             need_admin();
             $r = wa_send("✅ Tes notifikasi WhatsApp dari aplikasi kasir " . setting('store_name', 'toko') . ".\nJika pesan ini masuk, pemberitahuan transaksi sudah siap dipakai.\n" . date('d/m/Y H:i'), 'tes');
