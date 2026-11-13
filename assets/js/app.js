@@ -8,7 +8,7 @@ const App = {
   NAV: [
     { id: 'kasir', label: 'Kasir', icon: 'kasir', can: () => true },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', can: (u) => u.role === 'admin' },
-    { id: 'laporan', label: 'Laporan', icon: 'laporan', can: () => true },
+    { id: 'laporan', label: 'Laporan keuangan', icon: 'laporan', can: () => true },
     { id: 'pengiriman', label: 'Pengiriman', icon: 'truck', can: () => true },
     { id: 'qris', label: 'QRIS', icon: 'qr', can: () => true },
     { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },
@@ -727,7 +727,7 @@ async function Kasir(page) {
       <div class="bigtotal"><span>Total bayar</span><b>${rupiah(r.total)}</b></div>
       <div class="stack" style="margin-top:14px">
         ${chHTML}
-        <div class="paymethods">${[['cash', 'Tunai', 'cash'], ['qris', 'QRIS', 'qr'], ['transfer', 'Debit/Transfer', 'card']].map(([k, l, ic]) => `<button data-m="${k}" class="${k === 'cash' ? 'on' : ''}">${icon(ic)}${l}</button>`).join('')}</div>
+        <div class="paymethods">${[['cash', 'Tunai', 'cash'], ['qris', 'QRIS', 'qr'], ['debit', 'Debit', 'card'], ['transfer', 'Transfer', 'wallet']].map(([k, l, ic]) => `<button data-m="${k}" class="${k === 'cash' ? 'on' : ''}">${icon(ic)}${l}</button>`).join('')}</div>
         <div data-cashbox>${field('Uang diterima', 'pay', '', { numeric: true, placeholder: '0' })}
           <div class="quick" style="margin-top:8px">${quick.map((v) => `<button data-q="${v}">${v === r.total ? 'Uang pas' : rupiah(v)}</button>`).join('')}</div>
           <p class="bold" style="margin:10px 0 0" data-change></p></div>

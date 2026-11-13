@@ -537,7 +537,7 @@ function resizeImage(file, max = 900, q = 0.82) {
   });
 }
 function feePresets() { try { const a = JSON.parse(App.settings.fee_presets || '[]'); return Array.isArray(a) ? a.filter((x) => x && x.label) : []; } catch (e) { return []; } }
-const PAY = { cash: 'Tunai', qris: 'QRIS', transfer: 'Debit/Transfer' };
+const PAY = { cash: 'Tunai', qris: 'QRIS', debit: 'Debit', transfer: 'Transfer' };
 function escposReceipt(trx, s, width = 32) {
   const ESC = '\x1B', GS = '\x1D';
   const L = (ch = '-') => ch.repeat(width) + '\n';

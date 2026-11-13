@@ -44,6 +44,28 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Laporan keuangan (menu baru)
+
+Menu **Laporan** kini bernama **Laporan keuangan** dan berisi 9 sub menu. Pembaruan database berjalan otomatis saat aplikasi pertama dibuka setelah upload (tidak perlu impor SQL).
+
+| Sub menu | Isi | Admin | Kasir |
+|---|---|---|---|
+| Transaksi | Penjualan harian / bulanan / tahunan, filter kasir-metode-saluran, ekspor Excel | ✓ semua periode | hanya hari ini |
+| Laba rugi | Penjualan bersih − HPP = laba kotor − beban (komisi, barang reject, biaya operasional) = laba bersih; per bulan & tahun | ✓ | – |
+| Persediaan | Barang masuk & keluar per tanggal / per barang / rincian | ✓ | – |
+| Produk terlaris | Per model atau per varian, plus per kategori | ✓ | – |
+| Pembayaran | Rekap Tunai, QRIS, Debit, Transfer per jam / hari / bulan | ✓ | – |
+| Member | Belanja terbanyak & pembelian member per semester | ✓ (+ atur voucher) | ✓ |
+| Pegawai | Waktu absen, rekap absen, komisi | semua pegawai | data sendiri |
+| Retur | Tukar & pengembalian barang | ✓ semua periode | hanya hari ini |
+| Barang reject | Catat barang rusak (stok otomatis berkurang) | tambah & hapus | tambah saja |
+
+Catatan:
+- **Biaya operasional** (gaji, sewa, listrik, dll.) dicatat di sub menu Laba rugi → "Catat biaya" agar laba bersih akurat.
+- **Debit** sekarang metode pembayaran tersendiri (terpisah dari Transfer).
+- Komisi di laporan kasir muncul bila **nama sales** di menu Sales & komisi sama dengan **nama akun** kasir tersebut.
+- Menghapus data reject (admin) akan mengembalikan stok barangnya.
+
 ## Notifikasi transaksi di HP pemilik
 
 Setiap transaksi masuk, HP pemilik menampilkan pemberitahuan seperti pesan aplikasi — **walau aplikasi kasir sedang ditutup**. Contoh:

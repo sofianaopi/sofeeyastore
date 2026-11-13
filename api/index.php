@@ -58,7 +58,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 6) return;
+    if ($v >= 7) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -106,7 +106,16 @@ function migrate(PDO $pdo): void {
         auth VARCHAR(100) NOT NULL DEFAULT '', device VARCHAR(120) NOT NULL DEFAULT '', fails INT NOT NULL DEFAULT 0,
         last_ok DATETIME NULL, created DATETIME NULL, updated DATETIME NULL)$tail");
     try { $pdo->exec('CREATE UNIQUE INDEX idx_push_endpoint ON push_subs (endpoint_hash)'); } catch (Throwable $e) { /* sudah ada */ }
-    $setDefault('schema_version', '6', true);
+    // v7: laporan — barang reject & biaya operasional
+    $pdo->exec("CREATE TABLE IF NOT EXISTS rejects (
+        id $pk, product_id INT NULL, product_name VARCHAR(255) NOT NULL DEFAULT '', barcode VARCHAR(100) NOT NULL DEFAULT '',
+        category VARCHAR(100) NOT NULL DEFAULT '', qty INT NOT NULL DEFAULT 0, cost DECIMAL(14,2) NOT NULL DEFAULT 0,
+        reason VARCHAR(100) NOT NULL DEFAULT '', note VARCHAR(300) NOT NULL DEFAULT '', user_id INT NULL, user_name VARCHAR(200) NOT NULL DEFAULT '',
+        created DATETIME NULL, updated DATETIME NULL)$tail");
+    $pdo->exec("CREATE TABLE IF NOT EXISTS expenses (
+        id $pk, expense_date DATE NULL, category VARCHAR(80) NOT NULL DEFAULT '', amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+        note VARCHAR(300) NOT NULL DEFAULT '', user_name VARCHAR(200) NOT NULL DEFAULT '', created DATETIME NULL, updated DATETIME NULL)$tail");
+    $setDefault('schema_version', '7', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -183,10 +192,14 @@ $TABLES = [
     'transactions' => ['fields' => ['invoice' => 's', 'items' => 'j', 'subtotal' => 'n', 'discount' => 'n', 'fee' => 'n', 'fee_note' => 's', 'total' => 'n', 'payment' => 'n', 'change' => 'n', 'profit' => 'n', 'promo_name' => 's', 'item_count' => 'i', 'member_id' => 'i', 'member_name' => 's', 'points_earned' => 'i', 'points_used' => 'i', 'member_points_after' => 'i', 'cashier' => 's', 'cashier_id' => 'i', 'payment_method' => 's', 'sales_name' => 's', 'sales_code' => 's', 'commission' => 'n', 'note' => 's', 'channel' => 's', 'return_ref' => 's', 'return_items' => 'j', 'return_amount' => 'n', 'returned' => 'j'],
         'updatable' => ['sales_name', 'sales_code', 'commission', 'note'],
         'search' => ['invoice', 'member_name', 'cashier', 'sales_name', 'channel', 'return_ref'], 'read' => 'auth', 'write' => 'admin', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
+    'rejects' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'category' => 's', 'qty' => 'i', 'cost' => 'n', 'reason' => 's', 'note' => 's', 'user_id' => 'i', 'user_name' => 's'],
+        'search' => ['product_name', 'barcode', 'reason', 'note', 'user_name'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
+    'expenses' => ['fields' => ['expense_date' => 'd', 'category' => 's', 'amount' => 'n', 'note' => 's', 'user_name' => 's'],
+        'required' => ['category', 'amount'], 'search' => ['category', 'note'], 'read' => 'admin', 'write' => 'admin', 'order' => '-expense_date'],
     'stock_movements' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'type' => 's', 'quantity' => 'i', 'stock_before' => 'i', 'stock_after' => 'i', 'cashier' => 's', 'invoice' => 's', 'note' => 's'],
         'search' => ['product_name', 'barcode', 'invoice', 'note'], 'read' => 'admin', 'write' => 'none', 'delete' => 'admin', 'order' => '-created'],
     'attendance' => ['fields' => ['user_id' => 'i', 'user_name' => 's', 'type' => 's', 'lat' => 'n', 'lng' => 'n', 'ip' => 's', 'is_late' => 'b', 'late_minutes' => 'i'],
-        'search' => ['user_name'], 'read' => 'admin', 'write' => 'none', 'delete' => 'admin', 'order' => '-created'],
+        'search' => ['user_name'], 'read' => 'auth', 'write' => 'none', 'delete' => 'admin', 'order' => '-created'],
     'shipments' => ['fields' => ['transaction_id' => 'i', 'invoice' => 's', 'courier' => 's', 'recipient' => 's', 'phone' => 's', 'address' => 's', 'fee' => 'n', 'resi' => 's', 'status' => 's', 'note' => 's', 'cashier' => 's',
         'provider' => 's', 'biteship_order_id' => 's', 'courier_code' => 's', 'courier_service' => 's', 'tracking_id' => 's', 'tracking_link' => 's', 'bs_status' => 's', 'driver' => 's', 'area_id' => 's', 'area_name' => 's', 'postal_code' => 's', 'lat' => 'n', 'lng' => 'n', 'weight' => 'i', 'cost' => 'n'],
         'updatable' => ['courier', 'recipient', 'phone', 'address', 'fee', 'resi', 'status', 'note'],
@@ -276,8 +289,10 @@ function crud_list(array $in): array {
     }
     // kasir hanya melihat absensinya sendiri
     if ($t === 'attendance' && $u['role'] !== 'admin') { $where[] = 'user_id = ?'; $p[] = $u['id']; }
-    if (!empty($in['from'])) { $where[] = 'created >= ?'; $p[] = substr((string)$in['from'], 0, 10) . ' 00:00:00'; }
-    if (!empty($in['to']))   { $where[] = 'created <= ?'; $p[] = substr((string)$in['to'], 0, 10) . ' 23:59:59'; }
+    if ($t === 'transactions' && $u['role'] !== 'admin' && empty(($in['where'] ?? [])['invoice'])) { $where[] = 'created >= ?'; $p[] = date('Y-m-d') . ' 00:00:00'; }
+    $dcol = $t === 'expenses' ? 'expense_date' : 'created';
+    if (!empty($in['from'])) { $where[] = "$dcol >= ?"; $p[] = substr((string)$in['from'], 0, 10) . ($dcol === 'created' ? ' 00:00:00' : ''); }
+    if (!empty($in['to']))   { $where[] = "$dcol <= ?"; $p[] = substr((string)$in['to'], 0, 10) . ($dcol === 'created' ? ' 23:59:59' : ''); }
     if (!empty($in['q'])) {
         $or = [];
         foreach ($def['search'] as $f) { $or[] = "`$f` LIKE ?"; $p[] = '%' . $in['q'] . '%'; }
@@ -515,6 +530,78 @@ function gen_invoice(): string {
 }
 
 // =====================================================================
+//  LAPORAN: barang reject, member per semester, komisi pegawai
+// =====================================================================
+function reject_add(array $in): array {
+    $u = need_auth();
+    $qty = (int)($in['qty'] ?? 0);
+    if ($qty <= 0) fail('Jumlah barang reject minimal 1.');
+    $reason = trim(mb_substr((string)($in['reason'] ?? ''), 0, 100));
+    if ($reason === '') fail('Pilih alasan reject.');
+    db()->beginTransaction();
+    try {
+        $p = one('SELECT * FROM products WHERE id = ?', [(int)($in['product_id'] ?? 0)]);
+        if (!$p) fail('Barang tidak ditemukan.');
+        if ($qty > (int)$p['stock']) fail('Jumlah reject melebihi stok ' . $p['name'] . ' (sisa ' . (int)$p['stock'] . ').');
+        $before = (int)$p['stock']; $after = $before - $qty;
+        q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]);
+        $id = insert_row('rejects', ['product_id' => (int)$p['id'], 'product_name' => $p['name'], 'barcode' => (string)$p['barcode'], 'category' => (string)$p['category'], 'qty' => $qty,
+            'cost' => (float)$p['cost'], 'reason' => $reason, 'note' => trim(mb_substr((string)($in['note'] ?? ''), 0, 300)), 'user_id' => (int)$u['id'], 'user_name' => $u['name']]);
+        log_movement($p, 'out', $qty, $before, $after, 'Reject: ' . $reason);
+        db()->commit();
+    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
+    return get_row('rejects', $id);
+}
+// hanya admin; stok dikembalikan
+function reject_delete(array $in): array {
+    need_admin();
+    $r = one('SELECT * FROM rejects WHERE id = ?', [(int)($in['id'] ?? 0)]);
+    if (!$r) fail('Data reject tidak ditemukan.');
+    db()->beginTransaction();
+    try {
+        $p = one('SELECT * FROM products WHERE id = ?', [(int)$r['product_id']]);
+        if ($p) { $before = (int)$p['stock']; $after = $before + (int)$r['qty']; q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]); log_movement($p, 'in', (int)$r['qty'], $before, $after, 'Batal reject: ' . $r['reason']); }
+        q('DELETE FROM rejects WHERE id = ?', [$r['id']]);
+        db()->commit();
+    } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
+    return ['ok' => true];
+}
+// member dengan belanja terbanyak per semester (admin & kasir)
+function report_members(array $in): array {
+    need_auth();
+    $y = max(2000, min(2100, (int)($in['year'] ?? date('Y')))); $h = (int)($in['half'] ?? (date('n') <= 6 ? 1 : 2)) === 2 ? 2 : 1;
+    $from = sprintf('%d-%02d-01 00:00:00', $y, $h === 1 ? 1 : 7); $to = sprintf('%d-%02d-%02d 23:59:59', $y, $h === 1 ? 6 : 12, $h === 1 ? 30 : 31);
+    $tx = all('SELECT id, invoice, member_id, member_name, total, item_count, points_earned, points_used, cashier, created FROM transactions WHERE member_id IS NOT NULL AND member_id > 0 AND created BETWEEN ? AND ? ORDER BY created DESC', [$from, $to]);
+    $all = one('SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS s FROM transactions WHERE created BETWEEN ? AND ?', [$from, $to]);
+    $members = []; foreach (all('SELECT id, name, phone, points FROM members') as $m) $members[(int)$m['id']] = $m;
+    $agg = [];
+    foreach ($tx as $t) {
+        $id = (int)$t['member_id'];
+        $a = $agg[$id] ?? ['id' => $id, 'name' => $members[$id]['name'] ?? $t['member_name'], 'phone' => $members[$id]['phone'] ?? '', 'points' => (int)($members[$id]['points'] ?? 0), 'n' => 0, 'total' => 0, 'items' => 0, 'last' => ''];
+        $a['n']++; $a['total'] += (float)$t['total']; $a['items'] += (int)$t['item_count']; if ($t['created'] > $a['last']) $a['last'] = $t['created'];
+        $agg[$id] = $a;
+    }
+    usort($agg, fn($a, $b) => $b['total'] <=> $a['total']);
+    return ['year' => $y, 'half' => $h, 'from' => substr($from, 0, 10), 'to' => substr($to, 0, 10), 'ranking' => array_values($agg),
+            'purchases' => array_map(fn($t) => ['invoice' => $t['invoice'], 'member' => $t['member_name'], 'total' => (float)$t['total'], 'items' => (int)$t['item_count'], 'points' => (int)$t['points_earned'], 'cashier' => $t['cashier'], 'created' => $t['created']], array_slice($tx, 0, 1000)),
+            'members_total' => count($members), 'all_tx' => (int)($all['n'] ?? 0), 'all_sales' => (float)($all['s'] ?? 0)];
+}
+// komisi pegawai: admin melihat semua; kasir hanya miliknya (sales dengan nama yang sama)
+function report_commission(array $in): array {
+    $u = need_auth();
+    $from = substr((string)($in['from'] ?? date('Y-m-01')), 0, 10) . ' 00:00:00'; $to = substr((string)($in['to'] ?? date('Y-m-d')), 0, 10) . ' 23:59:59';
+    $sales = all('SELECT * FROM sales ORDER BY name');
+    if ($u['role'] !== 'admin') $sales = array_values(array_filter($sales, fn($s) => mb_strtolower(trim($s['name'])) === mb_strtolower(trim($u['name']))));
+    $out = [];
+    foreach ($sales as $s) {
+        $tx = all("SELECT invoice, total, commission, item_count, created FROM transactions WHERE sales_code = ? AND created BETWEEN ? AND ? ORDER BY created DESC", [$s['code'], $from, $to]);
+        $out[] = ['name' => $s['name'], 'code' => $s['code'], 'n' => count($tx), 'items' => array_sum(array_column($tx, 'item_count')), 'omzet' => array_sum(array_map('floatval', array_column($tx, 'total'))),
+                  'commission' => array_sum(array_map('floatval', array_column($tx, 'commission'))), 'tx' => array_map(fn($t) => ['invoice' => $t['invoice'], 'total' => (float)$t['total'], 'commission' => (float)$t['commission'], 'items' => (int)$t['item_count'], 'created' => $t['created']], $tx)];
+    }
+    return ['sales' => $out, 'self_only' => $u['role'] !== 'admin'];
+}
+
+// =====================================================================
 //  NOTIFIKASI WHATSAPP (Fonnte / CallMeBot) — dikirim setelah balasan ke kasir
 // =====================================================================
 $DEFER = [];
@@ -579,7 +666,7 @@ function wa_send(string $text, string $label = ''): array {
 }
 function wa_rp($n): string { return ($n < 0 ? '-' : '') . 'Rp' . number_format(abs((float)$n), 0, ',', '.'); }
 function wa_tx_message(array $tx): string {
-    $PAY = ['cash' => 'Tunai', 'qris' => 'QRIS', 'transfer' => 'Transfer'];
+    $PAY = ['cash' => 'Tunai', 'qris' => 'QRIS', 'debit' => 'Debit', 'transfer' => 'Transfer'];
     $store = (string)setting('store_name', 'Toko');
     $isRet = !empty($tx['return_ref']);
     $L = [];
@@ -843,7 +930,7 @@ function checkout(array $in): array {
         $total = $subtotal - $discount + $fee - $retAmount;
         if (!$ret) $total = max(0, $total);
         $payment = (float)($in['payment'] ?? 0);
-        $pm = (string)($in['payment_method'] ?? 'cash'); $method = in_array($pm, ['cash', 'qris', 'transfer'], true) ? $pm : 'cash';
+        $pm = (string)($in['payment_method'] ?? 'cash'); $method = in_array($pm, ['cash', 'qris', 'debit', 'transfer'], true) ? $pm : 'cash';
         if ($total <= 0) { $payment = 0; }
         else {
             if ($method !== 'cash') $payment = max($payment, $total);
@@ -1260,6 +1347,10 @@ try {
         case 'delete': $out = crud_delete($in); break;
         case 'checkout': $out = checkout($in); break;
         case 'checkout_status': $out = checkout_status($in); break;
+        case 'reject_add': $out = reject_add($in); break;
+        case 'reject_delete': $out = reject_delete($in); break;
+        case 'report_members': $out = report_members($in); break;
+        case 'report_commission': $out = report_commission($in); break;
         case 'tx_delete': $out = tx_delete($in); break;
         case 'stock_adjust': $out = stock_adjust($in); break;
         case 'variants_save': $out = variants_save($in); break;
