@@ -13,7 +13,7 @@ const Solo = {
   bindOut(kind) { const b = $('[data-out]'); if (b) b.onclick = async () => { await api('logout').catch(() => {}); this.user = null; this.login(kind); }; },
   login(kind) {
     const title = kind === 'absen' ? 'Absen pegawai' : 'Cek stok barang';
-    $('#app').innerHTML = `<div class="solo">${this.header(title, this.settings.store_name || 'Toko Anda')}<form class="panel panel-b stack" data-f><p class="muted" style="margin:0">Masuk dengan akun pegawai Anda.</p>${field('Email', 'email', '', { type: 'email', attrs: 'autocomplete="username" required' })}${field('Kata sandi', 'password', '', { type: 'password', attrs: 'autocomplete="current-password" required' })}<button class="btn primary" style="height:46px">Masuk</button></form></div>`;
+    $('#app').innerHTML = `<div class="solo">${this.header(title, this.settings.store_name || 'Sofeeya Store')}<form class="panel panel-b stack" data-f><p class="muted" style="margin:0">Masuk dengan akun pegawai Anda.</p>${field('Email', 'email', '', { type: 'email', attrs: 'autocomplete="username" required' })}${field('Kata sandi', 'password', '', { type: 'password', attrs: 'autocomplete="current-password" required' })}<button class="btn primary" style="height:46px">Masuk</button></form></div>`;
     $('[data-f]').onsubmit = async (e) => { e.preventDefault(); try { const r = await api('login', formValues(e.target)); this.user = r.user; this.settings = r.settings; this[kind](); } catch (ex) { toastErr(ex); } };
   },
 

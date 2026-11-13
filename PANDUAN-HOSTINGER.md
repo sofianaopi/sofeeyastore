@@ -44,6 +44,31 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Promo "Harga jadi" (versi 18)
+
+Jenis promo kini bernama jelas:
+
+| Jenis | Isi nilai | Contoh hasil (barang Rp159.000) |
+|---|---|---|
+| Harga jadi (harga tetap) | harga jual baru per pcs | isi 99000 → dijual Rp99.000 |
+| Diskon persen (%) | persen | isi 10 → Rp143.100 |
+| Potongan Rupiah per pcs | besar potongan | isi 20000 → Rp139.000 |
+
+Contoh hasil langsung tampil di bawah kolom Nilai saat mengisi. Harga promo otomatis tampil di kartu barang dan jendela pilih warna/ukuran (harga lama dicoret). Bila "Potongan Rupiah" diisi terlalu besar, aplikasi menawarkan mengganti ke "Harga jadi".
+
+## Broadcast WhatsApp ke member (versi 17)
+
+Menu **Member → Broadcast WA** (admin dan kasir; menghapus riwayat broadcast hanya admin) untuk mengirim promo atau info ke banyak member sekaligus.
+
+1. Tekan **Broadcast baru**, tulis pesan. Sisipkan **Nama depan**, **Poin**, atau **Nama toko** agar setiap pesan terasa pribadi (pratinjau tampil di kanan).
+2. Pilih penerima: semua member, member dengan poin minimal tertentu, member yang belum belanja selama sekian hari, belanja terbanyak, atau pilih sendiri. Member tanpa nomor WA atau yang ditandai "tidak mau dihubungi" otomatis tidak diikutkan.
+3. Kirim dengan salah satu cara:
+   - **Lewat WhatsApp (gratis):** aplikasi membuka WhatsApp dengan pesan sudah terisi untuk satu member; tekan kirim di WhatsApp, kembali, lanjut ke member berikutnya.
+   - **Otomatis (Fonnte):** bila token Fonnte sudah diisi di Pengaturan toko → Notifikasi transaksi → WhatsApp, aplikasi mengirim sendiri satu per satu dengan jeda (minimal 8 detik, disarankan 30 detik). Biarkan halaman terbuka sampai selesai.
+4. Bila ada yang membalas STOP, tekan **Tidak mau dihubungi** (atau centang di data member) agar tidak dikirimi lagi.
+
+Agar nomor WhatsApp toko aman: kirim hanya ke pelanggan yang pernah belanja, jangan lebih dari ±100 pesan per hari, dan beri jeda antar pesan.
+
 ## Tampilan kasir "Etalase" (versi 15)
 
 Halaman Kasir kini meniru suasana toko: foto barang berada di bingkai melengkung seperti ceruk rak, warna sage seperti meja kasir, tombol Bayar berwarna kuningan, promo berbentuk label harga gantung, dan keranjang seperti nota kertas. Nama barang dan total memakai huruf Lora (sudah disertakan di `assets/fonts`, lisensi SIL OFL, berfungsi tanpa internet). Notifikasi "Ditambahkan" kini muncul di bawah sehingga tidak menutupi keranjang. Halaman lain tidak berubah.

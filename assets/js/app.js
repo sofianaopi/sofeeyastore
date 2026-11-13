@@ -1,4 +1,4 @@
-/* Aplikasi Kasir — kerangka aplikasi + halaman Kasir */
+/* Sofeeya Store POS — kerangka aplikasi + halaman Kasir */
 'use strict';
 
 const App = {
@@ -79,7 +79,7 @@ const App = {
   // ------------------------------------------------------------ login
   renderLogin() {
     document.body.classList.remove('in-kasir', 'rail-open', 'cart-open'); this.applyLayout();
-    const name = this.settings.store_name || 'Toko Anda';
+    const name = this.settings.store_name || 'Sofeeya Store';
     $('#app').innerHTML = `
     <div class="login">
       <div class="login-art">
@@ -121,7 +121,7 @@ const App = {
 
   // ------------------------------------------------------------ shell
   renderShell() {
-    const u = this.user, name = this.settings.store_name || 'Toko Anda';
+    const u = this.user, name = this.settings.store_name || 'Sofeeya Store';
     const nav = this.NAV.filter((n) => n.sep || n.can(u));
     $('#app').innerHTML = `
     <div class="shell">
@@ -186,7 +186,7 @@ const App = {
     $$('[data-tab]').forEach((a) => a.classList.toggle('on', a.dataset.tab === id));
     const item = this.NAV.find((n) => n.id === id);
     $('[data-title]').textContent = item ? item.label : '';
-    document.title = (item ? item.label + ' — ' : '') + (this.settings.store_name || 'Toko Anda');
+    document.title = (item ? item.label + ' — ' : '') + (this.settings.store_name || 'Sofeeya Store');
     if (this.cleanup) { try { this.cleanup(); } catch (e) { /* abaikan */ } this.cleanup = null; }
     const page = $('#page');
     page.className = 'page' + (id === 'kasir' ? ' flush' : '');
@@ -393,6 +393,8 @@ async function Kasir(page) {
     return [...map.values()];
   }
   const effPrice = (p) => p.price - (p.discount || 0);
+  // harga yang dibayar pembeli untuk 1 pcs, sudah termasuk promo otomatis (mis. "Harga jadi Rp99.000")
+  const showPrice = (p) => Math.max(0, effPrice(p) - Promo.unitOff(p, autoPromos()));
   function renderGrid() {
     if (!alive()) return;
     const q = st.q.trim().toLowerCase();
@@ -405,7 +407,7 @@ async function Kasir(page) {
     el('[data-grid]').innerHTML = list.slice(0, 400).map((g) => {
       const avail = g.items.filter((p) => p.stock > 0);
       const stock = avail.reduce((s, p) => s + p.stock, 0);
-      const prices = avail.map(effPrice), lo = Math.min(...prices), hi = Math.max(...prices);
+      const prices = avail.map(showPrice), lo = Math.min(...prices), hi = Math.max(...prices);
       const orig = Math.max(...avail.map((p) => p.price));
       const colors = [...new Set(avail.map((p) => p.color).filter(Boolean))], sizes = sortSizes([...new Set(avail.map((p) => p.size).filter(Boolean))]);
       const b = avail.map((p) => Promo.badgeFor(p, act)).find(Boolean);
@@ -437,7 +439,7 @@ async function Kasir(page) {
       const p = find();
       const inCart = (id) => (st.cart.find((c) => c.id === id) || {}).qty || 0;
       m.$('[data-vb]').innerHTML = `
-        <div class="vs-price">${p ? (p.discount > 0 ? `<s>${rupiah(p.price)}</s> ` : '') + rupiah(effPrice(p)) : rupiah(Math.min(...items.map(effPrice)))}</div>
+        <div class="vs-price">${p ? (showPrice(p) < p.price ? `<s>${rupiah(p.price)}</s> ` : '') + rupiah(showPrice(p)) : rupiah(Math.min(...items.map(showPrice)))}</div>
         <div class="small muted">${esc(g.category || '')}${p ? ' · ' + esc(p.barcode || '') : ''}</div>
         ${hasC ? `<div class="vs-l">Warna${color ? ': <b>' + esc(color) + '</b>' : ''}</div><div class="vchips">${colors.map((c) => { const st2 = items.filter((x) => x.color === c).reduce((s, x) => s + x.stock, 0); return `<button data-c="${esc(c)}" class="${c === color ? 'on' : ''}" ${st2 <= 0 ? 'disabled' : ''}>${swatch(c)}${esc(c || '—')}</button>`; }).join('')}</div>` : ''}
         ${hasS ? `<div class="vs-l">Ukuran</div><div class="vchips size">${sizes.map((z) => { const v = items.find((x) => x.color === color && x.size === z); const left = v ? v.stock - inCart(v.id) : 0; return `<button data-z="${esc(z)}" class="${z === size ? 'on' : ''}" ${!v || left <= 0 ? 'disabled' : ''}><b>${esc(z || '—')}</b><small>${v ? (left <= 0 ? 'habis' : 'stok ' + left) : '—'}</small></button>`; }).join('')}</div>` : ''}
@@ -779,7 +781,7 @@ async function Kasir(page) {
   function doneModal(trx, { reprint = false } = {}) {
     const pp = PrinterPrefs.get();
     const m = modal({ title: reprint ? 'Struk ' + trx.invoice : 'Transaksi berhasil', body: `<div class="center" style="margin-bottom:12px"><div class="chip green" style="height:28px;font-size:13px">${icon('check')} ${esc(trx.invoice)}</div>${trx.total < 0 ? `<h1 style="margin-top:10px">Kembalikan uang ${rupiah(-trx.total)}</h1>` : trx.return_ref && trx.total === 0 ? '<h1 style="margin-top:10px">Tukar barang selesai</h1>' : trx.payment_method === 'cash' ? `<h1 style="margin-top:10px">Kembalian ${rupiah(trx.change)}</h1>` : ''}</div><div class="receipt-preview">${receiptHTML(trx, S)}</div>`,
-      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Toko Anda'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>${reprint ? 'Tutup' : 'Transaksi baru'}</button>`, onClose: () => { if (!reprint) newSale(); } });
+      foot: `${trx.shipping && trx.shipping.phone ? `<a class="btn" target="_blank" rel="noopener" href="${esc(waLink(trx.shipping.phone, `Halo ${trx.shipping.recipient}, pesanan Anda di ${S.store_name || 'Sofeeya Store'} (${trx.invoice}, ${rupiah(trx.total)}) akan dikirim via ${trx.shipping.courier}. Terima kasih!`))}">${icon('wa')}WA pembeli</a>` : ''}<button class="btn" data-print>${icon('printer')}Cetak struk</button>${Printer.supported ? `<button class="btn" data-bt>${icon('printer')}Printer Bluetooth</button>` : ''}<button class="btn primary" data-new>${reprint ? 'Tutup' : 'Transaksi baru'}</button>`, onClose: () => { if (!reprint) newSale(); } });
     m.$('[data-print]').onclick = () => printHTML(receiptHTML(trx, S));
     const btPrint = async () => { try { await Printer.printReceipt(trx); toast('Struk dikirim ke printer', Printer.device?.name || '', 'ok'); } catch (ex) { if (ex.name !== 'NotFoundError') toastErr(ex); } };
     const bt = m.$('[data-bt]'); if (bt) bt.onclick = btPrint;

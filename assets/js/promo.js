@@ -22,7 +22,7 @@ const Promo = (() => {
     if (p.type === 'price') return `Harga jadi ${rupiah(p.value)}`;
     return `Potongan ${rupiah(p.value)} / pcs`;
   }
-  const TYPE_LABEL = { percent: 'Diskon persen', fixed: 'Potongan tetap / pcs', price: 'Harga khusus', package: 'Paket beli X gratis Y', bogo: 'Beli 1 gratis 1' };
+  const TYPE_LABEL = { price: 'Harga jadi (harga tetap)', percent: 'Diskon persen (%)', fixed: 'Potongan Rupiah per pcs', package: 'Paket beli X gratis Y', bogo: 'Beli 1 gratis 1' };
   const isAuto = (p) => p.type === 'bogo' || p.type === 'package' || p.type === 'price' || !p.code;
 
   function lineAmount(p, c) {
@@ -111,6 +111,13 @@ const Promo = (() => {
     }
     return null;
   }
-  return { activeToday, compute, describe, upsell, checkVoucher, badgeFor, isAuto, TYPE_LABEL, pkgQty };
+  // potongan promo otomatis untuk 1 pcs barang (untuk menampilkan harga promo di kartu barang)
+  function unitOff(product, promos) {
+    const el = arr(promos).filter((p) => p.type !== 'package' && p.type !== 'bogo' && !(p.min_purchase > 0));
+    if (!el.length) return 0;
+    const c = { id: product.id, price: product.price, discount: product.discount || 0, category: product.category, qty: 1 };
+    return compute(el, [c], c.price).total;
+  }
+  return { activeToday, compute, describe, upsell, checkVoucher, badgeFor, isAuto, unitOff, TYPE_LABEL, pkgQty };
 })();
 const BADGE_COLORS = { yellow: '#D4A106', amber: '#D97706', orange: '#EA580C', red: '#DC2626', green: '#16A34A', emerald: '#059669', blue: '#2563EB', violet: '#7C3AED', pink: '#DB2777', fuchsia: '#C026D3' };

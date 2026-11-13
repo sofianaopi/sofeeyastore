@@ -1,6 +1,6 @@
 <?php
 /**
- * Aplikasi Kasir — REST API (PHP 7.4+ / 8.x, MySQL / MariaDB)
+ * Sofeeya Store POS — REST API (PHP 7.4+ / 8.x, MySQL / MariaDB)
  * Semua request: POST api/index.php?a=<aksi>   body JSON
  */
 declare(strict_types=1);
@@ -199,7 +199,7 @@ $TABLES = [
         'updatable' => ['sales_name', 'sales_code', 'commission', 'note'],
         'search' => ['invoice', 'member_name', 'cashier', 'sales_name', 'channel', 'return_ref'], 'read' => 'auth', 'write' => 'admin', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
     'broadcasts' => ['fields' => ['title' => 's', 'message' => 's', 'audience' => 's', 'recipients' => 'j', 'total' => 'i', 'sent' => 'i', 'user_name' => 's'],
-        'required' => ['message'], 'search' => ['title', 'message'], 'read' => 'admin', 'write' => 'admin', 'create' => 'admin', 'delete' => 'admin', 'order' => '-created'],
+        'required' => ['message'], 'search' => ['title', 'message'], 'read' => 'auth', 'write' => 'auth', 'create' => 'auth', 'delete' => 'admin', 'order' => '-created'],
     'rejects' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'category' => 's', 'qty' => 'i', 'cost' => 'n', 'reason' => 's', 'note' => 's', 'user_id' => 'i', 'user_name' => 's'],
         'search' => ['product_name', 'barcode', 'reason', 'note', 'user_name'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
     'expenses' => ['fields' => ['expense_date' => 'd', 'category' => 's', 'amount' => 'n', 'note' => 's', 'user_name' => 's'],
@@ -390,7 +390,7 @@ function public_settings(): array {
     $keys = ['store_name', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days'];
     $out = [];
     foreach (all('SELECT `key`, value FROM settings') as $r) if (in_array($r['key'], $keys, true)) $out[$r['key']] = $r['value'];
-    $out['store_name'] = $out['store_name'] ?? 'Toko Anda';
+    $out['store_name'] = $out['store_name'] ?? 'Sofeeya Store';
     return $out;
 }
 
@@ -676,6 +676,13 @@ function wa_send(string $text, string $label = ''): array {
 function broadcast_text(string $msg, array $r): string {
     $first = trim(explode(' ', trim((string)($r['name'] ?? '')))[0] ?? '');
     return strtr($msg, ['{nama}' => $first !== '' ? $first : 'kak', '{nama_lengkap}' => (string)($r['name'] ?? ''), '{poin}' => number_format((int)($r['points'] ?? 0), 0, ',', '.'), '{toko}' => (string)setting('store_name', 'toko kami')]);
+}
+// data pendukung broadcast (admin & kasir): bisakah kirim otomatis + belanja terakhir/total per member (2 tahun)
+function broadcast_info(): array {
+    $stats = [];
+    foreach (all("SELECT member_id, MAX(created) AS last, SUM(total) AS spent FROM transactions WHERE member_id IS NOT NULL AND member_id > 0 AND created >= ? GROUP BY member_id", [date('Y-m-d', strtotime('-730 days')) . ' 00:00:00']) as $r)
+        $stats[(int)$r['member_id']] = [(string)$r['last'], (float)$r['spent']];
+    return ['can_auto' => (string)setting('wa_provider', 'fonnte') === 'fonnte' && trim((string)setting('wa_token', '')) !== '', 'stats' => (object)$stats];
 }
 // kirim broadcast ke SATU penerima lewat Fonnte; aplikasi memanggil ini bergiliran dengan jeda
 function broadcast_send_one(array $in): array {
@@ -1380,7 +1387,9 @@ try {
         case 'push_unsubscribe': $out = push_action('unsubscribe', $in); break;
         case 'push_list': $out = push_action('list', $in); break;
         case 'push_test': $out = push_action('test', $in); break;
-        case 'broadcast_send': need_admin(); $out = broadcast_send_one($in); break;
+        case 'broadcast_send': need_auth(); $out = broadcast_send_one($in); break;
+        case 'broadcast_info': need_auth(); $out = broadcast_info(); break;
+        case 'member_optout': { need_auth(); $id = (int)($in['id'] ?? 0); q('UPDATE members SET no_broadcast = 1, updated = ? WHERE id = ?', [now(), $id]); $out = ['ok' => true]; break; }
         case 'wa_test': {
             need_admin();
             $r = wa_send("✅ Tes notifikasi WhatsApp dari aplikasi kasir " . setting('store_name', 'toko') . ".\nJika pesan ini masuk, pemberitahuan transaksi sudah siap dipakai.\n" . date('d/m/Y H:i'), 'tes');

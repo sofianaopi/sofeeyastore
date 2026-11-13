@@ -1,4 +1,4 @@
-/* Aplikasi Kasir — halaman-halaman pengelolaan */
+/* Sofeeya Store POS — halaman-halaman pengelolaan */
 'use strict';
 const V = App.views;
 
@@ -876,7 +876,7 @@ V.promo = async (page) => {
       m.$(k === 'p' ? '[data-pcount]' : '[data-fcount]').textContent = pick[k].size ? pick[k].size + ' dipilih' : '';
     };
     ['p', 'f'].forEach((k) => { drawPick(k); m.$(k === 'p' ? '[data-psearch]' : '[data-fsearch]').oninput = () => drawPick(k); });
-    m.el.addEventListener('change', (e) => { const k = e.target.dataset.pk; if (k) { e.target.checked ? pick[k].add(+e.target.value) : pick[k].delete(+e.target.value); m.$(k === 'p' ? '[data-pcount]' : '[data-fcount]').textContent = pick[k].size ? pick[k].size + ' dipilih' : ''; } });
+    m.el.addEventListener('change', (e) => { const k = e.target.dataset.pk; if (k) { e.target.checked ? pick[k].add(+e.target.value) : pick[k].delete(+e.target.value); m.$(k === 'p' ? '[data-pcount]' : '[data-fcount]').textContent = pick[k].size ? pick[k].size + ' dipilih' : ''; if (typeof example === 'function') example(); } });
     const typeSel = m.$('[name=type]');
     const onType = () => {
       const t = typeSel.value, pkg = t === 'package';
@@ -884,9 +884,20 @@ V.promo = async (page) => {
       m.$('[name=value]').closest('label').classList.toggle('hidden', t === 'package' || t === 'bogo');
       m.$('[data-freebox]').classList.toggle('hidden', !(t === 'package' || t === 'bogo'));
       m.$('[name=value]').closest('label').querySelector('.hint')?.remove();
-      const hints = { percent: 'Persen diskon, mis. 10', fixed: 'Potongan Rupiah per pcs', price: 'Harga akhir per pcs, mis. 99000' };
-      if (hints[t]) m.$('[name=value]').insertAdjacentHTML('afterend', `<span class="hint">${hints[t]}</span>`);
+      if (t !== 'package' && t !== 'bogo') m.$('[name=value]').insertAdjacentHTML('afterend', '<span class="hint" data-vhint></span>');
+      example();
     };
+    // contoh hasil promo, supaya jelas: isi 99000 pada "Harga jadi" = barang dijual Rp99.000
+    const example = () => {
+      const h = m.$('[data-vhint]'); if (!h) return;
+      const t = typeSel.value, v = num(m.$('[name=value]').value);
+      const sample = products.find((x) => pick.p.has(x.id)) || null, base = sample ? sample.price : 159000;
+      const lbl = sample ? esc(sample.name) + ' ' : 'Barang ';
+      if (t === 'price') h.innerHTML = v > 0 ? `${lbl}${rupiah(base)} → dijual <b>${rupiah(v)}</b>` : 'Isi harga jual baru per pcs, mis. 99000 = dijual Rp99.000';
+      else if (t === 'percent') h.innerHTML = v > 0 ? `${lbl}${rupiah(base)} → <b>${rupiah(Math.round(base * (1 - Math.min(v, 100) / 100)))}</b> (diskon ${v}%)` : 'Isi persen diskon, mis. 10';
+      else h.innerHTML = v > 0 ? `${lbl}${rupiah(base)} → <b>${rupiah(Math.max(0, base - v))}</b> (dipotong ${rupiah(v)})` : 'Isi besar potongan per pcs, mis. 20000';
+    };
+    m.$('[name=value]').addEventListener('input', example);
     typeSel.onchange = onType; onType();
     m.$('[data-cancel]').onclick = () => m.close();
     m.$('[data-save]').onclick = async () => {
@@ -897,6 +908,11 @@ V.promo = async (page) => {
       if (!(v.type === 'package' || v.type === 'bogo')) v.free_category = '';
       if (!v.name) { toast('Nama promo wajib diisi', '', 'err'); return; }
       if (v.type === 'percent' && (v.value <= 0 || v.value > 100)) { toast('Persen diskon harus 1–100', '', 'err'); return; }
+      if ((v.type === 'price' || v.type === 'fixed') && !(v.value > 0)) { toast('Isi nilai promo', v.type === 'price' ? 'Harga jual baru per pcs, mis. 99000.' : 'Besar potongan per pcs.', 'err'); return; }
+      if (v.type === 'fixed') {
+        const sel = products.filter((x) => pick.p.has(x.id)), minP = sel.length ? Math.min(...sel.map((x) => x.price)) : 0;
+        if (minP && v.value >= minP * 0.5 && await confirmBox('Maksudnya harga jadi ' + rupiah(v.value) + '?', `"Potongan Rupiah" memotong ${rupiah(v.value)} dari harga barang (mis. ${rupiah(minP)} jadi ${rupiah(Math.max(0, minP - v.value))}). Bila ingin barang dijual seharga ${rupiah(v.value)}, pakai "Harga jadi".`, 'Ganti ke Harga jadi', false)) v.type = 'price';
+      }
       if (v.start_date && v.end_date && v.end_date < v.start_date) { toast('Tanggal berakhir sebelum tanggal mulai', '', 'err'); return; }
       try { if (p.id) await db.update('promos', p.id, v); else await db.create('promos', v); toast('Promo disimpan', v.name, 'ok'); m.close(); V.promo(page); } catch (e) { toastErr(e); }
     };
@@ -918,7 +934,7 @@ V.promo = async (page) => {
 // =====================================================================
 V.member = async (page) => {
   const admin = App.isAdmin();
-  page.innerHTML = head('Member', 'Data pelanggan, poin belanja, dan reward.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar member'], ['reward', 'Reward poin'], ...(admin ? [['set', 'Aturan poin & diskon'], ['broadcast', 'Broadcast WA']] : [])], 'list')}</div><div data-body></div>`;
+  page.innerHTML = head('Member', 'Data pelanggan, poin belanja, dan reward.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar member'], ['reward', 'Reward poin'], ...(admin ? [['set', 'Aturan poin & diskon']] : []), ['broadcast', 'Broadcast WA']], 'list')}</div><div data-body></div>`;
   const body = $('[data-body]', page);
   const mform = (m = {}) => `${field('Nama', 'name', m.name)}${field('Nomor HP / WA', 'phone', m.phone, { type: 'tel' })}${field('Email', 'email', m.email, { type: 'email' })}${admin ? `<div class="grid2">${field('Poin', 'points', m.points ?? 0, { numeric: true })}${field('Voucher belanja (Rp)', 'voucher_amount', m.voucher_amount || '', { numeric: true, hint: 'Sekali pakai, otomatis terpotong di kasir.' })}</div><label class="check"><input type="checkbox" name="no_broadcast" ${m.no_broadcast ? 'checked' : ''}> Tidak mau menerima broadcast WhatsApp</label>` : ''}`;
   async function drawList() {
@@ -984,7 +1000,7 @@ V.member = async (page) => {
       { label: 'Penerima', get: (b) => b.audience || '-' },
       { label: 'Dibuat', get: (b) => fmtDT(b.created) },
       { label: 'Terkirim', html: (b) => `<div class="bc-prog"><i style="width:${b.total ? Math.round((b.sent / b.total) * 100) : 0}%"></i></div><span class="small">${fmtNum(b.sent)} / ${fmtNum(b.total)}</span>` },
-      { label: '', cls: 'right nowrap', html: (b) => `<button class="btn sm primary" data-bopen="${b.id}">${b.sent < b.total ? 'Lanjut kirim' : 'Lihat'}</button> <button class="btn sm icon danger" data-bdel="${b.id}" aria-label="Hapus">${icon('trash')}</button>` },
+      { label: '', cls: 'right nowrap', html: (b) => `<button class="btn sm primary" data-bopen="${b.id}">${b.sent < b.total ? 'Lanjut kirim' : 'Lihat'}</button>${admin ? ` <button class="btn sm icon danger" data-bdel="${b.id}" aria-label="Hapus">${icon('trash')}</button>` : ''}` },
     ], list, { empty: 'Belum ada broadcast. Tekan "Broadcast baru" untuk mulai.', emptyIcon: 'member' });
     body.onclick = async (e) => {
       if (e.target.closest('[data-bnew]')) return newBroadcast();
@@ -997,9 +1013,9 @@ V.member = async (page) => {
   async function newBroadcast() {
     let members = [], last = {}, spent = {};
     try {
-      members = await db.list('members');
-      const tx = await db.list('transactions', { from: ymd(addDays(new Date(), -730)), to: ymd(), limit: 50000 });
-      tx.forEach((t) => { if (!t.member_id) return; if (!last[t.member_id] || t.created > last[t.member_id]) last[t.member_id] = t.created; spent[t.member_id] = (spent[t.member_id] || 0) + t.total; });
+      const [ml, info] = await Promise.all([db.list('members'), api('broadcast_info')]);
+      members = ml;
+      Object.entries(info.stats || {}).forEach(([id, [l, sp]]) => { last[id] = l; spent[id] = sp; });
     } catch (e) { toastErr(e); return; }
     const reach = members.filter((m) => waNum(m.phone).length >= 10 && !m.no_broadcast);
     const skipped = members.length - reach.length;
@@ -1067,8 +1083,7 @@ V.member = async (page) => {
   }
 
   async function sender(b) {
-    let s = {}; try { s = await api('settings_all'); } catch (e) { /* abaikan */ }
-    const canAuto = (s.wa_provider || 'fonnte') === 'fonnte' && !!s.wa_token;
+    let canAuto = false; try { canAuto = !!(await api('broadcast_info')).can_auto; } catch (e) { /* abaikan */ }
     let mode = 'manual', timer = null, running = false, wait = 30;
     const m = modal({ title: b.title || 'Broadcast WhatsApp', size: 'xwide', body: `<div class="stack">
       <div class="row wrap" style="gap:12px"><div class="grow"><div class="bc-prog big"><i data-bar></i></div></div><b data-prog></b></div>
@@ -1099,11 +1114,11 @@ V.member = async (page) => {
         </div></div>`;
       box.querySelector('[data-go]').onclick = () => { r.status = 'dibuka'; r.at = nowStr(); save().catch(toastErr); setTimeout(() => { head2(); drawManual(); }, 300); };
       box.querySelector('[data-skip]').onclick = async () => { r.status = 'dilewati'; await save(); head2(); drawManual(); };
-      box.querySelector('[data-optout]').onclick = async () => { if (!(await confirmBox('Tandai ' + r.name + ' tidak mau dihubungi?', 'Member ini tidak akan masuk broadcast berikutnya.', 'Tandai', false))) return; try { await db.update('members', r.id, { no_broadcast: true }); } catch (e) { /* member mungkin sudah dihapus */ } r.status = 'dilewati'; await save(); head2(); drawManual(); };
+      box.querySelector('[data-optout]').onclick = async () => { if (!(await confirmBox('Tandai ' + r.name + ' tidak mau dihubungi?', 'Member ini tidak akan masuk broadcast berikutnya.', 'Tandai', false))) return; try { await api('member_optout', { id: r.id }); } catch (e) { /* member mungkin sudah dihapus */ } r.status = 'dilewati'; await save(); head2(); drawManual(); };
     };
     const drawAuto = () => {
       const box = m.$('[data-mode]');
-      if (!canAuto) { box.innerHTML = `<div class="panel panel-b"><p style="margin:0 0 8px"><b>Kirim otomatis memerlukan layanan Fonnte</b> (berbayar, nomor WhatsApp toko disambungkan ke Fonnte).</p><p class="muted" style="margin:0">Isi token Fonnte di <b>Pengaturan toko → Notifikasi transaksi → WhatsApp</b>. Tanpa itu, pakai cara "Kirim lewat WhatsApp (gratis)".</p></div>`; return; }
+      if (!canAuto) { box.innerHTML = `<div class="panel panel-b"><p style="margin:0 0 8px"><b>Kirim otomatis memerlukan layanan Fonnte</b> (berbayar, nomor WhatsApp toko disambungkan ke Fonnte).</p><p class="muted" style="margin:0">${admin ? 'Isi token Fonnte di <b>Pengaturan toko → Notifikasi transaksi → WhatsApp</b>.' : 'Minta admin mengisi token Fonnte di Pengaturan toko.'} Tanpa itu, pakai cara "Kirim lewat WhatsApp (gratis)".</p></div>`; return; }
       box.innerHTML = `<div class="panel panel-b stack">
         <p style="margin:0">Aplikasi mengirim satu per satu lewat Fonnte dengan jeda. <b>Biarkan halaman ini terbuka</b> sampai selesai.</p>
         <div class="row wrap" style="gap:10px"><label class="f" style="width:auto">Jeda antar pesan<select class="input" data-wait>${[15, 30, 45, 60].map((x) => `<option value="${x}" ${x === wait ? 'selected' : ''}>${x} detik</option>`).join('')}</select></label>
@@ -1419,7 +1434,7 @@ V.pengiriman = async (page) => {
   let list = [], tab = 'baru';
   page.innerHTML = head('Pengiriman', 'Pesanan yang dikirim lewat J&T, JNE, Grab, GoSend, Maxim, atau kurir toko.') + `<div class="row wrap" style="justify-content:space-between;margin-bottom:12px"><div data-tabwrap></div><div class="search" style="min-width:240px">${icon('search')}<input class="input" data-q placeholder="Cari nama, HP, resi, invoice…"></div></div><div data-body></div>`;
   const body = $('[data-body]', page);
-  const msg = (sh) => `Halo ${sh.recipient}, pesanan Anda dari ${App.settings.store_name || 'Toko Anda'} (${sh.invoice}) ${sh.status === 'selesai' ? 'sudah diterima. Terima kasih telah berbelanja!' : `sudah dikirim via ${sh.courier}.`}${sh.resi && sh.status !== 'selesai' ? `\nNo. resi / pelacakan: ${sh.resi}` : ''}${trackURL(sh) && sh.status !== 'selesai' ? `\nLacak: ${trackURL(sh)}` : ''}`;
+  const msg = (sh) => `Halo ${sh.recipient}, pesanan Anda dari ${App.settings.store_name || 'Sofeeya Store'} (${sh.invoice}) ${sh.status === 'selesai' ? 'sudah diterima. Terima kasih telah berbelanja!' : `sudah dikirim via ${sh.courier}.`}${sh.resi && sh.status !== 'selesai' ? `\nNo. resi / pelacakan: ${sh.resi}` : ''}${trackURL(sh) && sh.status !== 'selesai' ? `\nLacak: ${trackURL(sh)}` : ''}`;
   const load = async () => { list = await db.list('shipments', { limit: 1000 }); draw(); };
   const draw = () => {
     const counts = Object.fromEntries(Object.keys(ST).map((k) => [k, list.filter((x) => x.status === k).length]));
@@ -1452,7 +1467,7 @@ V.pengiriman = async (page) => {
     if (g('copy')) { const txt = `${sh.recipient} (${sh.phone})\n${sh.address}`; try { await navigator.clipboard.writeText(txt); toast('Alamat disalin', 'Tempel di aplikasi kurir.', 'ok'); } catch (ex) { prompt('Salin alamat:', txt); } }
     if (g('send')) crudModal({ title: 'Nomor resi / link pelacakan', fields: `<p class="muted" style="margin:0">${esc(sh.courier)} · ${esc(sh.recipient)}</p>${field(courierInfo(sh.courier).type === 'paket' ? 'Nomor resi' : 'Link pelacakan / nama & plat driver', 'resi', sh.resi, { hint: courierInfo(sh.courier).type === 'paket' ? 'Resi dari J&T/JNE/SiCepat bisa dilacak otomatis.' : 'Salin link "bagikan perjalanan" dari aplikasi Grab/Gojek/Maxim.' })}`, onSave: async (v) => { await db.update('shipments', id, { resi: v.resi, status: 'dikirim' }); toast('Pesanan ditandai dikirim', sh.recipient, 'ok'); load(); } });
     if (g('done')) { await db.update('shipments', id, { status: 'selesai' }); toast('Pesanan diterima', sh.recipient, 'ok'); load(); }
-    if (g('label')) printHTML(`<div style="width:95mm;border:2px solid #000;padding:4mm;font-family:Arial,sans-serif;font-size:11pt"><div style="display:flex;justify-content:space-between;font-weight:700"><span>${esc(sh.courier)}</span><span>${esc(sh.invoice)}</span></div><hr><div style="font-size:9pt">Penerima</div><div style="font-size:14pt;font-weight:700">${esc(sh.recipient)}</div><div>${esc(sh.phone)}</div><div style="margin-top:2mm">${esc(sh.address)}</div>${sh.note ? `<div style="margin-top:2mm;font-size:9pt">Catatan: ${esc(sh.note)}</div>` : ''}<hr><div style="font-size:9pt">Pengirim: ${esc(App.settings.store_name || 'Toko Anda')} ${esc(App.settings.receipt_phone || '')}</div>${sh.resi && courierInfo(sh.courier).type === 'paket' ? `<div style="margin-top:2mm;height:14mm">${code128SVG(sh.resi)}</div><div style="text-align:center;font-size:9pt">${esc(sh.resi)}</div>` : ''}</div>`);
+    if (g('label')) printHTML(`<div style="width:95mm;border:2px solid #000;padding:4mm;font-family:Arial,sans-serif;font-size:11pt"><div style="display:flex;justify-content:space-between;font-weight:700"><span>${esc(sh.courier)}</span><span>${esc(sh.invoice)}</span></div><hr><div style="font-size:9pt">Penerima</div><div style="font-size:14pt;font-weight:700">${esc(sh.recipient)}</div><div>${esc(sh.phone)}</div><div style="margin-top:2mm">${esc(sh.address)}</div>${sh.note ? `<div style="margin-top:2mm;font-size:9pt">Catatan: ${esc(sh.note)}</div>` : ''}<hr><div style="font-size:9pt">Pengirim: ${esc(App.settings.store_name || 'Sofeeya Store')} ${esc(App.settings.receipt_phone || '')}</div>${sh.resi && courierInfo(sh.courier).type === 'paket' ? `<div style="margin-top:2mm;height:14mm">${code128SVG(sh.resi)}</div><div style="text-align:center;font-size:9pt">${esc(sh.resi)}</div>` : ''}</div>`);
     if (g('edit')) crudModal({ title: 'Ubah pengiriman', size: 'wide', fields: `<div class="grid2"><label class="f">Kurir<select class="input" name="courier">${COURIERS.map((c) => `<option ${c.id === sh.courier ? 'selected' : ''}>${esc(c.id)}</option>`).join('')}</select></label><label class="f">Status<select class="input" name="status">${Object.entries(ST).map(([k, [l]]) => `<option value="${k}" ${k === sh.status ? 'selected' : ''}>${l}</option>`).join('')}</select></label>${field('Nama penerima', 'recipient', sh.recipient)}${field('No. HP', 'phone', sh.phone)}</div><label class="f">Alamat<textarea class="input" name="address">${esc(sh.address)}</textarea></label><div class="grid2">${field('Ongkir (Rp)', 'fee', sh.fee, { numeric: true, hint: 'Hanya catatan; total transaksi tidak berubah.' })}${field('Resi / link', 'resi', sh.resi)}</div>${field('Catatan', 'note', sh.note)}`, onSave: async (v) => { await db.update('shipments', id, v); load(); } });
   };
   await load();
