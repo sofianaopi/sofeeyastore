@@ -58,7 +58,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 5) return;
+    if ($v >= 6) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -100,7 +100,13 @@ function migrate(PDO $pdo): void {
     // v5: penanda unik transaksi dari perangkat kasir (mencegah transaksi ganda saat halaman dimuat ulang)
     $addCol('transactions', 'client_ref', "VARCHAR(40) NOT NULL DEFAULT ''");
     try { $pdo->exec('CREATE INDEX idx_tx_client_ref ON transactions (client_ref)'); } catch (Throwable $e) { /* sudah ada */ }
-    $setDefault('schema_version', '5', true);
+    // v6: notifikasi di HP (Web Push)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS push_subs (
+        id $pk, user_id INT NULL, endpoint TEXT NOT NULL, endpoint_hash VARCHAR(64) NOT NULL DEFAULT '', p256dh VARCHAR(200) NOT NULL DEFAULT '',
+        auth VARCHAR(100) NOT NULL DEFAULT '', device VARCHAR(120) NOT NULL DEFAULT '', fails INT NOT NULL DEFAULT 0,
+        last_ok DATETIME NULL, created DATETIME NULL, updated DATETIME NULL)$tail");
+    try { $pdo->exec('CREATE UNIQUE INDEX idx_push_endpoint ON push_subs (endpoint_hash)'); } catch (Throwable $e) { /* sudah ada */ }
+    $setDefault('schema_version', '6', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -605,13 +611,159 @@ function wa_tx_message(array $tx): string {
     }
     return implode("\n", $L);
 }
-function wa_notify_tx(array $tx): void {
-    if (setting('wa_enabled', '0') !== '1') return;
+// ---------------------------------------------------------------- NOTIFIKASI DI HP (Web Push, RFC 8030/8291/8292)
+function b64u(string $b): string { return rtrim(strtr(base64_encode($b), '+/', '-_'), '='); }
+function b64u_dec(string $s): string { $r = base64_decode(strtr($s, '-_', '+/') . str_repeat('=', (4 - strlen($s) % 4) % 4), true); return $r === false ? '' : $r; }
+function ec_new() {
+    $k = openssl_pkey_new(['curve_name' => 'prime256v1', 'private_key_type' => OPENSSL_KEYTYPE_EC]);
+    if (!$k) throw new RuntimeException('OpenSSL di server tidak mendukung kunci EC.');
+    return $k;
+}
+function ec_raw_public($key): string {
+    $d = openssl_pkey_get_details($key);
+    return "\x04" . str_pad($d['ec']['x'], 32, "\0", STR_PAD_LEFT) . str_pad($d['ec']['y'], 32, "\0", STR_PAD_LEFT);
+}
+// kunci publik mentah (65 byte) -> objek kunci OpenSSL
+function ec_public_from_raw(string $raw) {
+    $der = hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . $raw;
+    return openssl_pkey_get_public("-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($der), 64, "\n") . "-----END PUBLIC KEY-----\n");
+}
+// kunci VAPID dibuat otomatis sekali dan disimpan di pengaturan
+function vapid_keys(): array {
+    $priv = (string)setting('push_vapid_private', ''); $pub = (string)setting('push_vapid_public', '');
+    if ($priv === '' || $pub === '') {
+        $k = ec_new(); openssl_pkey_export($k, $priv); $pub = b64u(ec_raw_public($k));
+        set_setting('push_vapid_private', $priv); set_setting('push_vapid_public', $pub);
+        $host = preg_replace('/[^a-z0-9.\-:]/i', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost'));
+        set_setting('push_vapid_sub', 'https://' . ($host ?: 'localhost'));
+    }
+    return ['private' => $priv, 'public' => $pub, 'sub' => (string)setting('push_vapid_sub', 'mailto:admin@example.com')];
+}
+// tanda tangan ES256: DER -> r||s (64 byte)
+function der_to_raw_sig(string $der): string {
+    $o = 2; if (ord($der[1]) & 0x80) $o += ord($der[1]) & 0x7f;
+    $out = '';
+    for ($i = 0; $i < 2; $i++) { $o++; $len = ord($der[$o]); $o++; $v = substr($der, $o, $len); $o += $len; $out .= str_pad(ltrim($v, "\0"), 32, "\0", STR_PAD_LEFT); }
+    return $out;
+}
+function vapid_header(string $endpoint, array $keys): string {
+    $u = parse_url($endpoint);
+    $claims = ['aud' => $u['scheme'] . '://' . $u['host'], 'exp' => time() + 12 * 3600, 'sub' => $keys['sub']];
+    $input = b64u(json_encode(['typ' => 'JWT', 'alg' => 'ES256'])) . '.' . b64u(json_encode($claims, JSON_UNESCAPED_SLASHES));
+    if (!openssl_sign($input, $der, $keys['private'], OPENSSL_ALGO_SHA256)) throw new RuntimeException('Gagal menandatangani VAPID.');
+    return 'vapid t=' . $input . '.' . b64u(der_to_raw_sig($der)) . ', k=' . $keys['public'];
+}
+// enkripsi isi pesan (aes128gcm) untuk satu HP
+function push_encrypt(string $payload, string $uaPublicB64, string $authB64): string {
+    $uaPub = b64u_dec($uaPublicB64); $auth = b64u_dec($authB64);
+    if (strlen($uaPub) !== 65 || strlen($auth) < 16) throw new RuntimeException('Data langganan HP tidak valid.');
+    $eph = ec_new(); $asPub = ec_raw_public($eph);
+    $peer = ec_public_from_raw($uaPub);
+    $secret = openssl_pkey_derive($peer, $eph, 32);
+    if ($secret === false) throw new RuntimeException('Gagal membuat kunci enkripsi.');
+    $ikm = hash_hkdf('sha256', $secret, 32, "WebPush: info\0" . $uaPub . $asPub, $auth);
+    $salt = random_bytes(16);
+    $cek = hash_hkdf('sha256', $ikm, 16, "Content-Encoding: aes128gcm\0", $salt);
+    $nonce = hash_hkdf('sha256', $ikm, 12, "Content-Encoding: nonce\0", $salt);
+    $ct = openssl_encrypt($payload . "\x02", 'aes-128-gcm', $cek, OPENSSL_RAW_DATA, $nonce, $tag);
+    return $salt . pack('N', 4096) . chr(65) . $asPub . $ct . $tag;
+}
+// hanya ke layanan push resmi browser (mencegah server dipakai menghubungi alamat lain)
+function push_endpoint_ok(string $e): bool {
+    $u = parse_url($e);
+    if (($u['scheme'] ?? '') !== 'https' || empty($u['host'])) return false;
+    $h = strtolower($u['host']);
+    foreach (['fcm.googleapis.com', 'android.googleapis.com', 'updates.push.services.mozilla.com', 'push.services.mozilla.com', 'web.push.apple.com', 'notify.windows.com', 'push.api.chrome.google.com'] as $ok) if ($h === $ok || substr($h, -strlen('.' . $ok)) === '.' . $ok) return true;
+    return (bool)getenv('POS_PUSH_TEST_HOST') && $h === getenv('POS_PUSH_TEST_HOST');
+}
+function push_send_one(array $sub, array $msg, array $keys): array {
+    $body = push_encrypt(json_encode($msg, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $sub['p256dh'], $sub['auth']);
+    $endpoint = getenv('POS_PUSH_TEST_URL') ?: $sub['endpoint'];
+    $ch = curl_init($endpoint);
+    curl_setopt_array($ch, [CURLOPT_POST => true, CURLOPT_POSTFIELDS => $body, CURLOPT_RETURNTRANSFER => true, CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_TIMEOUT => 15,
+        CURLOPT_HTTPHEADER => ['Content-Type: application/octet-stream', 'Content-Encoding: aes128gcm', 'TTL: 86400', 'Urgency: high', 'Topic: ' . substr(preg_replace('/[^A-Za-z0-9_-]/', '', (string)($msg['tag'] ?? 'tx')), 0, 32),
+            'Authorization: ' . vapid_header($sub['endpoint'], $keys)]]);
+    $res = (string)curl_exec($ch); $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+    return [$code, $code ? mb_substr(trim(strip_tags($res)), 0, 160) : $err];
+}
+// kirim ke semua HP yang terdaftar
+function push_send_all(array $msg, string $label = '', ?int $onlyUser = null): array {
+    $subs = $onlyUser ? all('SELECT * FROM push_subs WHERE user_id = ?', [$onlyUser]) : all('SELECT * FROM push_subs');
+    if (!$subs) { $r = ['ok' => false, 'info' => 'Belum ada HP yang terdaftar.']; set_setting('push_last', json_encode(['time' => now(), 'ok' => false, 'info' => $r['info'], 'label' => $label], JSON_UNESCAPED_UNICODE)); return $r; }
+    $keys = vapid_keys(); $sent = 0; $fails = []; $removed = 0;
+    foreach ($subs as $sub) {
+        try { [$code, $info] = push_send_one($sub, $msg, $keys); } catch (Throwable $e) { $code = 0; $info = $e->getMessage(); }
+        if ($code >= 200 && $code < 300) { $sent++; q('UPDATE push_subs SET fails = 0, last_ok = ? WHERE id = ?', [now(), $sub['id']]); }
+        elseif ($code === 404 || $code === 410) { q('DELETE FROM push_subs WHERE id = ?', [$sub['id']]); $removed++; } // langganan sudah tidak berlaku
+        else { $fails[] = ($sub['device'] ?: 'HP') . ': ' . ($code ? 'HTTP ' . $code . ' ' : '') . $info; q('UPDATE push_subs SET fails = fails + 1 WHERE id = ?', [$sub['id']]); }
+    }
+    $info = "Terkirim ke $sent HP." . ($removed ? " $removed HP lama dihapus (notifikasi dimatikan di HP tsb)." : '') . ($fails ? ' Gagal: ' . implode(' | ', $fails) : '');
+    $r = ['ok' => $sent > 0 && !$fails, 'info' => $info, 'sent' => $sent];
+    set_setting('push_last', json_encode(['time' => now(), 'ok' => $r['ok'], 'info' => $info, 'label' => $label], JSON_UNESCAPED_UNICODE));
+    return $r;
+}
+function push_tx_message(array $tx): array {
+    $isRet = !empty($tx['return_ref']);
+    $amount = $isRet && (float)$tx['total'] < 0 ? 'Kembali ' . wa_rp(-(float)$tx['total']) : wa_rp($tx['total']);
+    $title = ($isRet ? '🔁 Tukar/retur · ' : '🛍️ ') . $amount . ($isRet ? '' : ' · Transaksi baru');
+    $line1 = $tx['invoice'] . ' · ' . (($tx['channel'] ?? 'Toko') ?: 'Toko') . ' · ' . ($tx['cashier'] ?: '-');
+    $lines = [$line1];
+    if (setting('wa_items', '1') === '1') {
+        $it = array_map(fn($i) => $i['name'] . ' ×' . (int)$i['qty'], (array)$tx['items']);
+        if ($it) $lines[] = mb_substr(implode(', ', array_slice($it, 0, 4)) . (count($it) > 4 ? ', +' . (count($it) - 4) . ' lagi' : ''), 0, 160);
+    }
+    if (setting('wa_daily', '1') === '1') {
+        $d = one('SELECT COUNT(*) AS n, COALESCE(SUM(total), 0) AS s FROM transactions WHERE created >= ?', [date('Y-m-d') . ' 00:00:00']);
+        $lines[] = 'Hari ini: ' . wa_rp($d['s'] ?? 0) . ' · ' . (int)($d['n'] ?? 0) . ' transaksi';
+    }
+    return ['title' => $title, 'body' => implode("\n", $lines), 'tag' => 'tx-' . $tx['invoice'], 'url' => './#laporan', 'ts' => time() * 1000];
+}
+function push_device_name(string $ua): string {
+    $os = preg_match('/Android/i', $ua) ? 'Android' : (preg_match('/iPhone|iPad/i', $ua) ? 'iPhone/iPad' : (preg_match('/Windows/i', $ua) ? 'Windows' : (preg_match('/Mac OS/i', $ua) ? 'Mac' : (preg_match('/Linux/i', $ua) ? 'Linux' : 'Perangkat'))));
+    $br = preg_match('/EdgA?\//i', $ua) ? 'Edge' : (preg_match('/SamsungBrowser/i', $ua) ? 'Samsung Internet' : (preg_match('/Firefox|FxiOS/i', $ua) ? 'Firefox' : (preg_match('/OPR\//i', $ua) ? 'Opera' : (preg_match('/Chrome|CriOS/i', $ua) ? 'Chrome' : (preg_match('/Safari/i', $ua) ? 'Safari' : 'Browser')))));
+    return $br . ' · ' . $os;
+}
+function push_action(string $what, array $in): array {
+    $u = need_admin();
+    if ($what === 'key') return ['key' => vapid_keys()['public']];
+    if ($what === 'subscribe') {
+        $sub = (array)($in['subscription'] ?? []);
+        $endpoint = (string)($sub['endpoint'] ?? ''); $p = (string)($sub['keys']['p256dh'] ?? ''); $a = (string)($sub['keys']['auth'] ?? '');
+        if (!push_endpoint_ok($endpoint)) fail('Alamat notifikasi dari browser ini tidak dikenali.');
+        if (strlen(b64u_dec($p)) !== 65 || strlen(b64u_dec($a)) < 16) fail('Data notifikasi dari browser tidak lengkap.');
+        $h = hash('sha256', $endpoint); $dev = push_device_name((string)($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        $ex = one('SELECT id FROM push_subs WHERE endpoint_hash = ?', [$h]);
+        if ($ex) q('UPDATE push_subs SET user_id = ?, p256dh = ?, auth = ?, device = ?, fails = 0, updated = ? WHERE id = ?', [$u['id'], $p, $a, $dev, now(), $ex['id']]);
+        else q('INSERT INTO push_subs (user_id, endpoint, endpoint_hash, p256dh, auth, device, fails, created, updated) VALUES (?,?,?,?,?,?,0,?,?)', [$u['id'], $endpoint, $h, $p, $a, $dev, now(), now()]);
+        return ['device' => $dev];
+    }
+    if ($what === 'unsubscribe') {
+        if (!empty($in['id'])) q('DELETE FROM push_subs WHERE id = ?', [(int)$in['id']]);
+        elseif (!empty($in['endpoint'])) q('DELETE FROM push_subs WHERE endpoint_hash = ?', [hash('sha256', (string)$in['endpoint'])]);
+        return ['ok' => true];
+    }
+    if ($what === 'list') {
+        $mine = !empty($in['endpoint']) ? hash('sha256', (string)$in['endpoint']) : '';
+        return array_map(fn($r) => ['id' => (int)$r['id'], 'device' => $r['device'], 'user' => (string)(one('SELECT name FROM users WHERE id = ?', [(int)$r['user_id']])['name'] ?? ''), 'created' => $r['created'], 'last_ok' => $r['last_ok'], 'fails' => (int)$r['fails'], 'this' => $mine !== '' && $r['endpoint_hash'] === $mine], all('SELECT * FROM push_subs ORDER BY id'));
+    }
+    if ($what === 'test') {
+        $r = push_send_all(['title' => '✅ Notifikasi aktif', 'body' => 'Tes dari aplikasi kasir ' . setting('store_name', 'toko') . '. Setiap ada transaksi baru, pemberitahuan akan muncul seperti ini.', 'tag' => 'tes', 'url' => './#pengaturan', 'ts' => time() * 1000], 'tes');
+        if (empty($r['sent'])) fail('Gagal mengirim: ' . $r['info']);
+        return $r;
+    }
+    fail('Aksi tidak dikenal.');
+}
+
+// ---------------------------------------------------------------- kirim ke semua saluran yang aktif
+function notify_tx(array $tx): void {
+    $push = setting('push_enabled', '0') === '1'; $wa = setting('wa_enabled', '0') === '1';
+    if (!$push && !$wa) return;
     $isRet = !empty($tx['return_ref']);
     if ($isRet && setting('wa_retur', '1') !== '1') return;
     $min = (float)setting('wa_min_total', '0');
     if (!$isRet && $min > 0 && (float)$tx['total'] < $min) return;
-    wa_send(wa_tx_message($tx), $tx['invoice']);
+    if ($push) push_send_all(push_tx_message($tx), $tx['invoice']);
+    if ($wa) wa_send(wa_tx_message($tx), $tx['invoice']);
 }
 
 function tx_full(int $id): array {
@@ -776,7 +928,7 @@ function checkout(array $in): array {
         throw $e;
     }
     $full = tx_full($id);
-    after_response(function () use ($full) { wa_notify_tx($full); });
+    after_response(function () use ($full) { notify_tx($full); });
     return $full;
 }
 
@@ -1076,12 +1228,13 @@ try {
         case 'settings_all': {
             need_admin(); $out = []; foreach (all('SELECT `key`, value FROM settings') as $r) $out[$r['key']] = $r['value']; $out['_my_ip'] = client_ip();
             unset($out['biteship_api_key']);
-            $tk = (string)($out['wa_token'] ?? ''); $out['wa_token'] = $tk === '' ? '' : str_repeat('•', 8) . substr($tk, -4);
+            unset($out['push_vapid_private']);
+            foreach (['wa_token'] as $sk) { $tk = (string)($out[$sk] ?? ''); $out[$sk] = $tk === '' ? '' : str_repeat('•', 8) . substr($tk, -4); }
             break;
         }
         case 'settings_save': {
             need_admin();
-            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days', 'wa_enabled', 'wa_provider', 'wa_token', 'wa_targets', 'wa_min_total', 'wa_items', 'wa_daily', 'wa_retur'];
+            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days', 'wa_enabled', 'wa_provider', 'wa_token', 'wa_targets', 'wa_min_total', 'wa_items', 'wa_daily', 'wa_retur', 'push_enabled'];
             if (isset($in['values']['wa_token']) && (strpos((string)$in['values']['wa_token'], '•') !== false)) unset($in['values']['wa_token']); // token tersamar = tidak diubah
             if (isset($in['values']['wa_provider']) && !in_array($in['values']['wa_provider'], ['fonnte', 'callmebot'], true)) fail('Layanan WhatsApp tidak dikenal.');
             if (isset($in['values']['qris_payload'])) { $qp = trim((string)$in['values']['qris_payload']); if ($qp !== '' && (strpos($qp, '000201') !== 0 || strlen($qp) > 1000)) fail('Kode QRIS tidak valid.'); $in['values']['qris_payload'] = $qp; }
@@ -1089,6 +1242,11 @@ try {
             foreach ((array)($in['values'] ?? []) as $k => $v) if (in_array($k, $allowed, true)) set_setting($k, $v);
             $out = public_settings(); break;
         }
+        case 'push_key': $out = push_action('key', $in); break;
+        case 'push_subscribe': $out = push_action('subscribe', $in); break;
+        case 'push_unsubscribe': $out = push_action('unsubscribe', $in); break;
+        case 'push_list': $out = push_action('list', $in); break;
+        case 'push_test': $out = push_action('test', $in); break;
         case 'wa_test': {
             need_admin();
             $r = wa_send("✅ Tes notifikasi WhatsApp dari aplikasi kasir " . setting('store_name', 'toko') . ".\nJika pesan ini masuk, pemberitahuan transaksi sudah siap dipakai.\n" . date('d/m/Y H:i'), 'tes');

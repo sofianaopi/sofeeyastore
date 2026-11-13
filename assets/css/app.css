@@ -489,3 +489,23 @@ body.d-phone .prod .nm{font-size:12.5px}
 .wa-help code{background:#fff;border:1px solid #D4EBDB;border-radius:6px;padding:1px 5px;font-size:12px}
 .wa-preview{background:#ECE5DD;border-radius:12px;padding:12px}
 .wa-bubble{background:#DCF8C6;border-radius:10px 10px 10px 2px;padding:9px 11px;font-size:13px;line-height:1.5;max-width:340px;box-shadow:0 1px 1px rgba(0,0,0,.12);color:#111}
+/* notifikasi transaksi */
+.ntf-card{border:1.5px solid #CFE3F7;background:linear-gradient(180deg,#F5FAFF,#fff);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.ntf-ic{width:40px;height:40px;border-radius:12px;background:var(--brand);color:#fff;display:grid;place-items:center;flex:none}
+.ntf-ic svg{width:21px;height:21px}
+.ntf-warn{display:flex;gap:8px;align-items:flex-start;background:#FFF7E6;border:1px solid #F5D9A3;color:#7A4A00;border-radius:10px;padding:10px 12px;font-size:13px;line-height:1.5}
+.ntf-warn svg{width:17px;height:17px;flex:none;margin-top:1px}
+.ntf-devs{border:1px solid var(--line);border-radius:10px;background:#fff}
+.ntf-devs .row{padding:9px 10px;border-bottom:1px solid var(--line-2)}
+.ntf-devs .row:last-child{border-bottom:0}
+.ntf-prev{background:linear-gradient(160deg,#1E2A3A,#33465F);border-radius:14px;padding:14px}
+.ntf-prev .muted{color:#B9C6D6!important}
+.ntf-mock{display:flex;gap:10px;background:rgba(255,255,255,.96);border-radius:14px;padding:10px 12px;font-size:12.5px;line-height:1.45;color:#16202C;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.ntf-mock img{width:30px;height:30px;border-radius:8px;flex:none}
+.ntf-mock .ntf-app{font-size:11px;color:#6A7686;margin-bottom:2px}
+.ntf-mock b{font-size:13.5px}
+.ntf-more{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:#fff}
+.ntf-more summary{cursor:pointer;font-weight:700;display:flex;align-items:center;gap:8px;list-style:none}
+.ntf-more summary::-webkit-details-marker{display:none}
+.ntf-more summary svg{width:18px;height:18px;color:#1FA855}
+.ntf-more summary .chip{margin-left:auto}

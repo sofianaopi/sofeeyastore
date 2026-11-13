@@ -739,27 +739,38 @@ V.pengaturan = async (page) => {
   const sch = (() => { try { return JSON.parse(s.work_schedule || '{}'); } catch (e) { return {}; } })();
   const net = (() => { try { return JSON.parse(s.store_network || '{}'); } catch (e) { return {}; } })();
   const sample = { invoice: 'INV261110-1234', created: nowStr(), cashier: App.user.name, items: [{ name: 'Kemeja Kantor Basic - Putih / M', qty: 1, price: 159000 }, { name: 'Rok Span - Hitam / L', qty: 1, price: 129000, itemDiscount: 20000 }], subtotal: 288000, discount: 20000, total: 268000, payment: 300000, change: 32000, payment_method: 'cash' };
-  page.innerHTML = head('Pengaturan toko', 'Identitas toko, struk, saluran penjualan, tukar barang, PIN admin, biaya, QRIS, dan absensi.') + `
+  page.innerHTML = head('Pengaturan toko', 'Identitas toko, struk, notifikasi transaksi, saluran penjualan, tukar barang, PIN admin, biaya, QRIS, dan absensi.') + `
   <div class="grid2" style="align-items:start">
     <div class="stack">
       <div class="panel"><div class="panel-h"><h3>Toko & struk</h3></div><div class="panel-b stack" data-store>
         ${field('Nama toko', 'store_name', s.store_name)}${field('Alamat di struk', 'receipt_address', s.receipt_address)}${field('Telepon / WA', 'receipt_phone', s.receipt_phone)}${field('Catatan bawah baris 1', 'receipt_footer1', s.receipt_footer1)}${field('Catatan bawah baris 2', 'receipt_footer2', s.receipt_footer2)}
         <div><button class="btn primary" data-save-store>Simpan toko & struk</button></div></div></div>
-      <div class="panel" data-wa><div class="panel-h"><div><h3>Notifikasi WhatsApp</h3><span class="small muted">Pesan ke HP pemilik setiap ada transaksi masuk</span></div><span class="chip ${s.wa_enabled === '1' ? 'green' : ''}" data-wa-chip>${s.wa_enabled === '1' ? 'Aktif' : 'Nonaktif'}</span></div><div class="panel-b stack">
-        <label class="row" style="gap:10px;cursor:pointer"><span class="switch"><input type="checkbox" data-wa-on ${s.wa_enabled === '1' ? 'checked' : ''}><span></span></span><b>Kirim pemberitahuan transaksi</b></label>
-        <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Layanan pengirim</div><div class="seg" data-wa-prov><button data-pv="fonnte" class="${(s.wa_provider || 'fonnte') === 'fonnte' ? 'on' : ''}">Fonnte</button><button data-pv="callmebot" class="${s.wa_provider === 'callmebot' ? 'on' : ''}">CallMeBot (gratis)</button></div></div>
-        <div class="wa-help small" data-wa-help></div>
-        ${field('Token / API key', 'wa_token', s.wa_token || '', { attrs: 'autocomplete="off" spellcheck="false"', placeholder: 'Tempel token di sini' })}
-        ${field('Nomor WhatsApp penerima', 'wa_targets', s.wa_targets || '', { placeholder: '0812xxxx, 0813xxxx', hint: 'Pemilik / admin. Beberapa nomor pisahkan dengan koma.' })}
-        ${field('Kirim hanya bila total minimal', 'wa_min_total', s.wa_min_total || '', { numeric: true, hint: 'Kosongkan = semua transaksi dikirim.' })}
-        <div class="stack" style="gap:8px">
-          <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_items" ${s.wa_items !== '0' ? 'checked' : ''}> Sertakan rincian barang</label>
-          <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_daily" ${s.wa_daily !== '0' ? 'checked' : ''}> Sertakan omzet hari ini</label>
-          <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_retur" ${s.wa_retur !== '0' ? 'checked' : ''}> Kirim juga saat tukar / retur</label>
+      <div class="panel" data-wa><div class="panel-h"><div><h3>Notifikasi transaksi</h3><span class="small muted">Kabari pemilik setiap ada transaksi masuk</span></div></div><div class="panel-b stack">
+        <div class="ntf-card">
+          <div class="row" style="align-items:flex-start"><span class="ntf-ic">${icon('bell')}</span><div class="grow"><b>Notifikasi di HP</b> <span class="chip green">Gratis</span><div class="small muted">Muncul di layar HP seperti pesan aplikasi — walau aplikasi kasir sedang ditutup.</div></div></div>
+          <label class="row" style="gap:10px;cursor:pointer"><span class="switch"><input type="checkbox" data-push-on ${s.push_enabled === '1' ? 'checked' : ''}><span></span></span><b>Kirim notifikasi setiap transaksi</b></label>
+          <div data-push-me></div>
+          <div data-push-devs></div>
+          <p class="small muted" style="margin:0" data-push-last></p>
         </div>
-        <div class="wa-preview" data-wa-prev></div>
-        <p class="small muted" style="margin:0" data-wa-last></p>
-        <div class="row wrap"><button class="btn primary" data-wa-save>Simpan</button><button class="btn" data-wa-test>${icon('wa')}Kirim tes</button></div>
+        <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Isi pemberitahuan</div>
+          ${field('Kirim hanya bila total minimal', 'wa_min_total', s.wa_min_total || '', { numeric: true, hint: 'Kosongkan = semua transaksi diberitahukan.' })}
+          <div class="stack" style="gap:8px;margin-top:10px">
+            <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_items" ${s.wa_items !== '0' ? 'checked' : ''}> Sertakan nama barang</label>
+            <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_daily" ${s.wa_daily !== '0' ? 'checked' : ''}> Sertakan omzet hari ini</label>
+            <label class="row" style="gap:8px"><input type="checkbox" data-wa-opt="wa_retur" ${s.wa_retur !== '0' ? 'checked' : ''}> Beritahukan juga tukar / retur</label>
+          </div></div>
+        <div class="ntf-prev" data-push-prev></div>
+        <details class="ntf-more" ${s.wa_enabled === '1' ? 'open' : ''}><summary>${icon('wa')} Juga kirim lewat WhatsApp <span class="small muted">(opsional)</span> <span class="chip ${s.wa_enabled === '1' ? 'green' : ''}" data-wa-chip>${s.wa_enabled === '1' ? 'Aktif' : 'Nonaktif'}</span></summary><div class="stack" style="margin-top:12px">
+          <label class="row" style="gap:10px;cursor:pointer"><span class="switch"><input type="checkbox" data-wa-on ${s.wa_enabled === '1' ? 'checked' : ''}><span></span></span><b>Kirim pesan WhatsApp</b></label>
+          <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Layanan pengirim</div><div class="seg" data-wa-prov><button data-pv="fonnte" class="${(s.wa_provider || 'fonnte') === 'fonnte' ? 'on' : ''}">Fonnte</button><button data-pv="callmebot" class="${s.wa_provider === 'callmebot' ? 'on' : ''}">CallMeBot</button></div></div>
+          <div class="wa-help small" data-wa-help></div>
+          ${field('Token / API key', 'wa_token', s.wa_token || '', { attrs: 'autocomplete="off" spellcheck="false"', placeholder: 'Tempel token di sini' })}
+          ${field('Nomor WhatsApp penerima', 'wa_targets', s.wa_targets || '', { placeholder: '0812xxxx, 0813xxxx', hint: 'Beberapa nomor pisahkan dengan koma.' })}
+          <p class="small muted" style="margin:0" data-wa-last></p>
+          <div><button class="btn" data-wa-test>${icon('wa')}Kirim tes WhatsApp</button></div>
+        </div></details>
+        <div><button class="btn primary" data-wa-save>Simpan pengaturan notifikasi</button></div>
       </div></div>
       <div class="panel"><div class="panel-h"><h3>Penjualan & tukar barang</h3></div><div class="panel-b stack" data-fash>
         <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Saluran penjualan</div><div class="chipin" data-chs data-ph="Tambah, mis. Lazada lalu Enter"></div><span class="hint">Dipilih kasir saat pembayaran — omzet tiap saluran tampil di Dashboard.</span></div>
@@ -814,50 +825,80 @@ V.pengaturan = async (page) => {
   const chs = chipInput($('[data-chs]', page), (() => { try { return JSON.parse(s.sales_channels || '[]'); } catch (e) { return []; } })());
   const szs = (() => { let l = []; try { l = JSON.parse(s.size_sets || '[]'); } catch (e) { /* kosong */ } const root = $('[data-szs]', page); let list = l; const draw = () => { root.innerHTML = list.map((x, i) => `<span>${esc(x)}<button type="button" data-rm="${i}" aria-label="Hapus">×</button></span>`).join('') + `<input placeholder="${esc(root.dataset.ph)}">`; const inp = root.querySelector('input'); inp.onkeydown = (e) => { if (e.key === 'Enter' && inp.value.trim()) { e.preventDefault(); list.push(inp.value.trim()); draw(); root.querySelector('input').focus(); } }; }; root.onclick = (e) => { const b = e.target.closest('[data-rm]'); if (b) { list.splice(+b.dataset.rm, 1); draw(); } }; draw(); return { get: () => list }; })();
   $('[data-save-fash]', page).onclick = () => { const c = chs.get(); if (!c.length) { toast('Isi minimal satu saluran penjualan', '', 'err'); return; } save({ sales_channels: JSON.stringify(c), size_sets: JSON.stringify(szs.get()), return_days: String(Math.max(0, num($('[name=return_days]', page).value))) }, 'Pengaturan penjualan disimpan'); };
-  // ---------- notifikasi WhatsApp
+  // ---------- notifikasi transaksi: HP (Web Push) + WhatsApp opsional
   {
     const box = $('[data-wa]', page);
     let prov = s.wa_provider || 'fonnte';
     const HELP = {
-      fonnte: `<b>Cara pakai Fonnte</b> (gateway WhatsApp Indonesia, ada paket gratis & berbayar):<ol><li>Daftar di <a href="https://fonnte.com" target="_blank" rel="noopener">fonnte.com</a>, lalu <b>Add device</b> dan scan QR dengan WhatsApp nomor <u>pengirim</u> (sebaiknya nomor khusus toko, bukan nomor pribadi).</li><li>Salin <b>Token</b> perangkat dan tempel di bawah.</li><li>Isi nomor <u>penerima</u> (HP pemilik). Bisa lebih dari satu.</li></ol>`,
-      callmebot: `<b>Cara pakai CallMeBot</b> (gratis, khusus pemakaian pribadi, pesan dikirim ke nomor Anda sendiri):<ol><li>Simpan nomor bot <b>+34 644 97 54 14</b> di kontak HP penerima.</li><li>Kirim pesan WhatsApp ke bot: <code>I allow callmebot to send me messages</code></li><li>Bot membalas dengan <b>APIKEY</b> — tempel di bawah, dan isi nomor HP yang sama sebagai penerima.</li></ol>`,
+      fonnte: `<b>Fonnte</b> (gateway WhatsApp Indonesia):<ol><li>Daftar di <a href="https://fonnte.com" target="_blank" rel="noopener">fonnte.com</a> → <b>Add device</b> → scan QR memakai WhatsApp nomor <u>pengirim</u> (sebaiknya nomor khusus toko).</li><li>Salin <b>Token</b> perangkat, tempel di bawah, lalu isi nomor <u>penerima</u>.</li></ol>`,
+      callmebot: `<b>CallMeBot</b> (gratis, hanya ke nomor Anda sendiri). Nomor bot mereka bisa berganti — ikuti langkah terbaru di <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank" rel="noopener">halaman resmi CallMeBot</a>, lalu tempel APIKEY yang dikirim bot dan isi nomor HP yang sama.`,
     };
-    const lastTxt = (raw) => { try { const l = JSON.parse(raw || ''); return l.time ? `Pengiriman terakhir ${fmtDT(l.time)}${l.label ? ' (' + esc(l.label) + ')' : ''}: <b class="${l.ok ? 'money' : 'danger'}">${l.ok ? 'berhasil' : 'gagal'}</b> — ${esc(l.info || '')}` : ''; } catch (e) { return ''; } };
-    const sampleMsg = () => {
-      const o = {}; $$('[data-wa-opt]', box).forEach((c) => { o[c.dataset.waOpt] = c.checked; });
-      return [`🛍️ *Transaksi baru* — ${esc(s.store_name || 'Toko')}`, 'INV261113-1234 · 10:42', 'Kasir: Nisa · Instagram', ...(o.wa_items ? ['', '• Kemeja Kantor Basic - Putih / M ×1 = Rp159.000', '• Pashmina Ceruty - Sage ×2 = Rp90.000'] : []), '', '*Total: Rp249.000* (QRIS)', 'Member: Andi (+24 poin)', ...(o.wa_daily ? ['', '📊 Hari ini: Rp2.450.000 dari 14 transaksi'] : [])].join('<br>').replace(/\*([^*]+)\*/g, '<b>$1</b>');
+    const lastTxt = (raw, what) => { try { const l = JSON.parse(raw || ''); return l.time ? `${what} terakhir ${fmtDT(l.time)}${l.label ? ' (' + esc(l.label) + ')' : ''}: <b class="${l.ok ? 'money' : 'danger'}">${l.ok ? 'berhasil' : 'gagal'}</b> — ${esc(l.info || '')}` : ''; } catch (e) { return ''; } };
+    const opts = () => { const o = {}; $$('[data-wa-opt]', box).forEach((c) => { o[c.dataset.waOpt] = c.checked; }); return o; };
+    const drawPrev = () => {
+      const o = opts();
+      $('[data-push-prev]', box).innerHTML = `<div class="small bold muted" style="margin-bottom:6px">Contoh notifikasi di HP</div><div class="ntf-mock"><img src="assets/img/icon-192.png" alt=""><div class="grow"><div class="ntf-app">${esc(s.store_name || 'Kasir')} · sekarang</div><b>🛍️ Rp249.000 · Transaksi baru</b><div>INV261113-1234 · Instagram · Nisa</div>${o.wa_items ? '<div>Kemeja Kantor Basic - Putih / M ×1, Pashmina Ceruty - Sage ×2</div>' : ''}${o.wa_daily ? '<div>Hari ini: Rp2.450.000 · 14 transaksi</div>' : ''}</div></div>`;
     };
-    const draw = () => {
+    const drawWA = () => {
       $$('[data-pv]', box).forEach((b) => b.classList.toggle('on', b.dataset.pv === prov));
       $('[data-wa-help]', box).innerHTML = HELP[prov];
       $('[name=wa_token]', box).closest('label').firstChild.textContent = prov === 'callmebot' ? 'APIKEY dari CallMeBot' : 'Token perangkat Fonnte';
-      $('[data-wa-prev]', box).innerHTML = `<div class="small bold muted" style="margin-bottom:6px">Contoh pesan</div><div class="wa-bubble">${sampleMsg()}</div>`;
     };
-    $('[data-wa-last]', box).innerHTML = lastTxt(s.wa_last);
-    $('[data-wa-prov]', box).onclick = (e) => { const b = e.target.closest('[data-pv]'); if (b) { prov = b.dataset.pv; draw(); } };
-    box.addEventListener('change', (e) => { if (e.target.dataset.waOpt) draw(); });
+    // --- HP ini & daftar HP
+    const drawPush = async () => {
+      const me = $('[data-push-me]', box), blk = Push.blocker(), sub = await Push.current();
+      let devs = []; try { devs = await api('push_list', { endpoint: sub ? sub.endpoint : '' }); } catch (e) { /* abaikan */ }
+      const mine = sub && devs.some((d) => d.this);
+      me.innerHTML = blk && !mine ? `<div class="ntf-warn">${icon('info')}<span>${esc(blk)}</span></div>`
+        : mine ? `<div class="row wrap"><span class="chip green">${icon('check')}HP ini sudah menerima notifikasi</span><button class="btn sm" data-push-off>Matikan di HP ini</button></div>`
+        : `<button class="btn primary" data-push-enable style="width:100%;height:48px">${icon('bell')}Aktifkan notifikasi di HP ini</button><p class="small muted" style="margin:6px 0 0">Lakukan di HP pemilik saat login sebagai admin. Browser akan bertanya — tekan <b>Izinkan</b>.</p>`;
+      $('[data-push-devs]', box).innerHTML = devs.length ? `<div class="small bold muted" style="margin:4px 0 6px">HP penerima (${devs.length})</div><div class="ntf-devs">${devs.map((d) => `<div class="row"><span class="grow"><b>${esc(d.device)}</b>${d.this ? ' <span class="chip blue">HP ini</span>' : ''}<div class="small muted">${esc(d.user || '')} · ${d.last_ok ? 'terakhir terkirim ' + fmtDT(d.last_ok) : 'didaftarkan ' + fmtDT(d.created)}${d.fails ? ` · <span class="danger">${d.fails}× gagal</span>` : ''}</div></span><button class="btn sm icon danger" data-push-del="${d.id}" aria-label="Hapus">${icon('trash')}</button></div>`).join('')}</div><div style="margin-top:8px"><button class="btn" data-push-test>${icon('bell')}Kirim tes ke semua HP</button></div>` : '<p class="small muted" style="margin:0">Belum ada HP penerima.</p>';
+    };
+    const savePushOn = async (on) => { try { App.settings = await api('settings_save', { values: { push_enabled: on ? '1' : '0' } }); $('[data-push-on]', box).checked = on; } catch (e) { toastErr(e); } };
+    box.addEventListener('click', async (e) => {
+      const t = e.target.closest('button'); if (!t) return;
+      if (t.dataset.pushEnable !== undefined) {
+        t.disabled = true; t.textContent = 'Mengaktifkan…';
+        try { const r = await Push.enable(); await savePushOn(true); toast('Notifikasi aktif di HP ini', r.device + ' — kirim tes untuk mencoba.', 'ok'); } catch (ex) { toastErr(ex); }
+        drawPush();
+      } else if (t.dataset.pushOff !== undefined) {
+        await Push.disable(); toast('Notifikasi dimatikan di HP ini'); drawPush();
+      } else if (t.dataset.pushDel) {
+        if (await confirmBox('Hapus HP ini dari penerima?', 'HP tersebut tidak akan menerima notifikasi transaksi lagi.', 'Hapus')) { try { await api('push_unsubscribe', { id: +t.dataset.pushDel }); } catch (ex) { toastErr(ex); } drawPush(); }
+      } else if (t.dataset.pushTest !== undefined) {
+        t.disabled = true;
+        try { const r = await api('push_test'); toast('Notifikasi tes dikirim', r.info, 'ok'); } catch (ex) { toastErr(ex); }
+        try { const all = await api('settings_all'); $('[data-push-last]', box).innerHTML = lastTxt(all.push_last, 'Notifikasi'); } catch (ex) { /* abaikan */ }
+        t.disabled = false; drawPush();
+      }
+    });
+    $('[data-push-on]', box).onchange = (e) => savePushOn(e.target.checked).then(() => toast(e.target.checked ? 'Notifikasi transaksi aktif' : 'Notifikasi transaksi dimatikan'));
+    $('[data-push-last]', box).innerHTML = lastTxt(s.push_last, 'Notifikasi');
+    $('[data-wa-last]', box).innerHTML = lastTxt(s.wa_last, 'WhatsApp');
+    $('[data-wa-prov]', box).onclick = (e) => { const b = e.target.closest('[data-pv]'); if (b) { prov = b.dataset.pv; drawWA(); } };
+    box.addEventListener('change', (e) => { if (e.target.dataset.waOpt) drawPrev(); });
     const vals = () => {
-      const v = { wa_enabled: $('[data-wa-on]', box).checked ? '1' : '0', wa_provider: prov, wa_token: $('[name=wa_token]', box).value.trim(), wa_targets: $('[name=wa_targets]', box).value.trim(), wa_min_total: String(num($('[name=wa_min_total]', box).value) || '') };
+      const v = { push_enabled: $('[data-push-on]', box).checked ? '1' : '0', wa_enabled: $('[data-wa-on]', box).checked ? '1' : '0', wa_provider: prov, wa_token: $('[name=wa_token]', box).value.trim(), wa_targets: $('[name=wa_targets]', box).value.trim(), wa_min_total: String(num($('[name=wa_min_total]', box).value) || '') };
       $$('[data-wa-opt]', box).forEach((c) => { v[c.dataset.waOpt] = c.checked ? '1' : '0'; });
       return v;
     };
     const check = (v) => {
-      if (v.wa_enabled === '1' && !v.wa_token) { toast('Isi token / API key', '', 'err'); return false; }
+      if (v.wa_enabled === '1' && !v.wa_token) { toast('Isi token / API key WhatsApp', '', 'err'); return false; }
       if (v.wa_enabled === '1' && v.wa_targets.replace(/\D/g, '').length < 9) { toast('Isi nomor WhatsApp penerima', '', 'err'); return false; }
       return true;
     };
     const persist = async () => { const v = vals(); if (!check(v)) return false; try { App.settings = await api('settings_save', { values: v }); const c = $('[data-wa-chip]', box); c.textContent = v.wa_enabled === '1' ? 'Aktif' : 'Nonaktif'; c.className = 'chip ' + (v.wa_enabled === '1' ? 'green' : ''); return true; } catch (e) { toastErr(e); return false; } };
-    $('[data-wa-save]', box).onclick = async () => { if (await persist()) toast('Notifikasi WhatsApp disimpan', $('[data-wa-on]', box).checked ? 'Pesan dikirim setiap ada transaksi.' : 'Pemberitahuan dinonaktifkan.', 'ok'); };
+    $('[data-wa-save]', box).onclick = async () => { if (await persist()) toast('Pengaturan notifikasi disimpan', '', 'ok'); };
     $('[data-wa-test]', box).onclick = async (e) => {
       const b = e.currentTarget; const v = vals();
       if (!v.wa_token || v.wa_targets.replace(/\D/g, '').length < 9) { toast('Isi token dan nomor penerima dulu', '', 'err'); return; }
       if (!(await persist())) return;
-      b.disabled = true; const old = b.innerHTML; b.textContent = 'Mengirim…';
+      b.disabled = true;
       try { const r = await api('wa_test'); toast('Pesan tes terkirim', r.info + ' Cek WhatsApp Anda.', 'ok'); } catch (ex) { toastErr(ex); }
-      try { const all = await api('settings_all'); $('[data-wa-last]', box).innerHTML = lastTxt(all.wa_last); } catch (ex) { /* abaikan */ }
-      b.disabled = false; b.innerHTML = old;
+      try { const all = await api('settings_all'); $('[data-wa-last]', box).innerHTML = lastTxt(all.wa_last, 'WhatsApp'); } catch (ex) { /* abaikan */ }
+      b.disabled = false;
     };
-    draw();
+    drawWA(); drawPrev(); drawPush();
   }
   const prev = () => { const v = formValues($('[data-store]', page)); $('[data-prev]', page).innerHTML = receiptHTML(sample, v); };
   $('[data-store]', page).oninput = prev; prev();

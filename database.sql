@@ -253,6 +253,22 @@ CREATE TABLE IF NOT EXISTS shipments (
   INDEX idx_ship_bs (biteship_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Notifikasi di HP pemilik (Web Push)
+CREATE TABLE IF NOT EXISTS push_subs (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NULL,
+  endpoint TEXT NOT NULL,
+  endpoint_hash VARCHAR(64) NOT NULL DEFAULT '',
+  p256dh VARCHAR(200) NOT NULL DEFAULT '',
+  auth VARCHAR(100) NOT NULL DEFAULT '',
+  device VARCHAR(120) NOT NULL DEFAULT '',
+  fails INT NOT NULL DEFAULT 0,
+  last_ok DATETIME NULL,
+  created DATETIME NULL,
+  updated DATETIME NULL,
+  UNIQUE KEY idx_push_endpoint (endpoint_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS signals (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   triggered_by INT UNSIGNED NULL,
@@ -285,7 +301,7 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('sales_channels', '["Toko","WhatsApp","Instagram","Shopee","TikTok Shop"]', NOW(), NOW()),
  ('size_sets', '["S, M, L, XL","XS, S, M, L, XL, XXL","All size","M, L, XL, XXL, 3XL","27, 28, 29, 30, 31, 32","36, 37, 38, 39, 40"]', NOW(), NOW()),
  ('return_days', '7', NOW(), NOW()),
- ('schema_version', '5', NOW(), NOW());
+ ('schema_version', '6', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());

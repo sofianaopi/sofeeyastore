@@ -386,6 +386,38 @@ function pickFile() {
 }
 
 // ---------------------------------------------------------------- printer Bluetooth (ESC/POS)
+// ---------------------------------------------------------------- notifikasi di HP (Web Push)
+const Push = {
+  supported: typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
+  ios: /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+  standalone: () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true,
+  secure: () => window.isSecureContext,
+  key8(b64) { const p = '='.repeat((4 - (b64.length % 4)) % 4); const r = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); },
+  async reg() { await navigator.serviceWorker.register('sw.js'); return navigator.serviceWorker.ready; },
+  async current() { if (!this.supported) return null; try { const r = await navigator.serviceWorker.getRegistration(); return r ? await r.pushManager.getSubscription() : null; } catch (e) { return null; } },
+  // kendala yang membuat notifikasi tidak bisa diaktifkan di perangkat ini
+  blocker() {
+    if (!this.secure()) return 'Notifikasi hanya bisa di alamat https://. Aktifkan SSL domain di hPanel.';
+    if (this.ios && !this.standalone()) return 'Di iPhone/iPad: pasang aplikasi dulu ke Layar Utama (tombol Bagikan → Tambah ke Layar Utama), lalu buka dari ikon itu dan aktifkan di sini. Perlu iOS 16.4 ke atas.';
+    if (!this.supported) return 'Browser ini belum mendukung notifikasi. Gunakan Chrome di Android / laptop.';
+    if (Notification.permission === 'denied') return 'Notifikasi diblokir di browser ini. Ketuk ikon gembok di samping alamat situs → Izin → Notifikasi → Izinkan, lalu muat ulang halaman.';
+    return '';
+  },
+  async enable() {
+    const b = this.blocker(); if (b) throw new Error(b);
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Izin notifikasi tidak diberikan. Tekan "Izinkan" saat browser bertanya.');
+    const { key } = await api('push_key');
+    const reg = await this.reg();
+    let sub = await reg.pushManager.getSubscription();
+    // kunci server berubah (mis. pindah hosting) -> langganan lama tidak berlaku
+    if (sub && sub.options && sub.options.applicationServerKey) { const a = new Uint8Array(sub.options.applicationServerKey), k = this.key8(key); if (a.length !== k.length || a.some((v, i) => v !== k[i])) { await sub.unsubscribe(); sub = null; } }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: this.key8(key) });
+    return api('push_subscribe', { subscription: sub.toJSON() });
+  },
+  async disable() { const sub = await this.current(); if (sub) { try { await api('push_unsubscribe', { endpoint: sub.endpoint }); } catch (e) { /* abaikan */ } await sub.unsubscribe(); } },
+};
+
 // Pengaturan printer disimpan di perangkat ini (tidak hilang saat halaman dimuat ulang)
 const PrinterPrefs = {
   get() { try { return { auto: false, width: 32, ...JSON.parse(localStorage.getItem('pos-printer') || '{}') }; } catch (e) { return { auto: false, width: 32 }; } },

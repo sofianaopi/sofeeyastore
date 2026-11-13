@@ -171,6 +171,8 @@ const App = {
     this.route();
     this.startPing();
     if (Printer.saved()) Printer.restore();
+    // perbarui langganan notifikasi HP pemilik (bila browser menggantinya diam-diam)
+    if (this.isAdmin() && Push.supported && Notification.permission === 'granted') Push.current().then((sub) => sub && api('push_subscribe', { subscription: sub.toJSON() })).catch(() => {});
   },
 
   route() {

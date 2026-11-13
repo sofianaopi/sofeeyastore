@@ -44,21 +44,32 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
-## Notifikasi WhatsApp saat ada transaksi
+## Notifikasi transaksi di HP pemilik
 
-Setiap transaksi masuk (dan tukar/retur bila diaktifkan), HP pemilik menerima pesan WhatsApp berisi invoice, kasir, saluran penjualan, rincian barang, total & cara bayar, member, serta omzet hari ini. Pesan dikirim di belakang layar, jadi kasir **tidak menunggu**.
+Setiap transaksi masuk, HP pemilik menampilkan pemberitahuan seperti pesan aplikasi — **walau aplikasi kasir sedang ditutup**. Contoh:
 
-Atur di **Pengaturan → Notifikasi WhatsApp**, lalu tekan **Kirim tes**.
+> 🛍️ **Rp249.000 · Transaksi baru**
+> INV261113-1234 · Instagram · Nisa
+> Kemeja Kantor Basic - Putih / M ×1, Pashmina Ceruty - Sage ×2
+> Hari ini: Rp2.450.000 · 14 transaksi
 
-| Layanan | Cocok untuk | Cara menyiapkan |
-|---|---|---|
-| **Fonnte** | Pemakaian toko, bisa ke beberapa nomor | Daftar di fonnte.com → *Add device* → scan QR memakai WhatsApp nomor **pengirim** (sebaiknya nomor khusus toko) → salin **Token** → tempel di aplikasi → isi nomor penerima. |
-| **CallMeBot** | Gratis, hanya ke nomor Anda sendiri (pemakaian pribadi) | Simpan nomor bot **+34 644 97 54 14** → kirim pesan `I allow callmebot to send me messages` → bot membalas **APIKEY** → tempel di aplikasi dan isi nomor HP yang sama. |
+Gratis, tanpa nomor WhatsApp, tanpa Telegram, tanpa layanan pihak ketiga. Mengetuk notifikasi membuka halaman Laporan.
 
-- Token disimpan di server dan ditampilkan tersamar; akun kasir tidak bisa melihatnya.
-- Bisa diatur: total minimal yang dikirim, rincian barang, omzet hari ini, dan pemberitahuan retur.
-- Status pengiriman terakhir (berhasil/gagal + alasannya) tampil di bawah panel.
-- Server Hostinger harus bisa menghubungi internet keluar (cURL aktif) — standar di semua paket Hostinger.
+**Cara mengaktifkan (sekali saja, di HP pemilik):**
+1. Pastikan situs memakai **https://** — di hPanel: *Keamanan → SSL* (gratis). Notifikasi tidak bisa di http.
+2. Di HP pemilik, buka aplikasi dan **masuk sebagai admin**.
+3. **Pengaturan → Notifikasi transaksi → Aktifkan notifikasi di HP ini**, lalu tekan **Izinkan** saat browser bertanya.
+4. Tekan **Kirim tes ke semua HP** — notifikasi tes harus muncul.
+
+| HP | Catatan |
+|---|---|
+| **Android** | Pakai Chrome (atau Edge/Samsung Internet). Bisa langsung dari browser; lebih baik lagi bila aplikasi dipasang ke layar utama. |
+| **iPhone / iPad** | Wajib iOS 16.4 ke atas. Pasang dulu: buka situs di Safari → **Bagikan → Tambah ke Layar Utama**, buka dari ikon itu, baru aktifkan notifikasi. |
+
+- Bisa lebih dari satu HP (misalnya pemilik dan admin). Daftar HP penerima tampil di panel dan bisa dihapus.
+- Atur isi pemberitahuan: total minimal, nama barang, omzet hari ini, serta tukar/retur.
+- Bila tidak muncul: cek *Pengaturan HP → Aplikasi → Chrome → Notifikasi* menyala, dan mode hemat baterai tidak membatasi Chrome.
+- WhatsApp (Fonnte/CallMeBot) tetap tersedia sebagai tambahan di bagian *Juga kirim lewat WhatsApp*.
 
 Menu **Info kasir** dan **Rumah tautan** dihapus karena tidak dipakai dalam alur kerja toko.
 
@@ -154,6 +165,8 @@ Buka domain di **Chrome Android** → menu ⋮ → **Tambahkan ke layar utama**.
 | "Respons server tidak valid" | Pastikan folder `api/` ikut terunggah dan versi PHP ≥ 7.4 (hPanel → Advanced → PHP Configuration). |
 | Login berhasil lalu langsung keluar lagi | Akses lewat satu alamat saja (pilih dengan atau tanpa `www`) dan gunakan HTTPS. |
 | Absen ditolak "bukan jaringan toko" | IP WiFi toko bisa berubah bila modem restart. Perbarui lewat *Pengaturan toko → Pakai IP ini*. |
+| Tombol "Aktifkan notifikasi" tidak muncul / ada peringatan https | Aktifkan SSL di hPanel, lalu buka situs dengan https://. Untuk memaksa https, hapus tanda `#` pada baris pengalihan HTTPS di file `.htaccess`. |
+| Notifikasi diblokir di HP | Ketuk ikon gembok di samping alamat situs → Izin → Notifikasi → Izinkan, lalu muat ulang. |
 | Tes WhatsApp gagal "token invalid" / "device disconnected" | Salin ulang token dari dashboard Fonnte; pastikan perangkat di Fonnte berstatus *connect* (scan ulang QR bila putus). |
 | Upload foto gagal "Folder uploads/produk tidak dapat dibuat" | Di File Manager buat folder `uploads/produk`, lalu klik kanan → Permissions → **755**. |
 | Ingin melihat pesan error detail | Sementara ubah `'debug' => true` di `api/config.php`, lalu kembalikan ke `false`. |
