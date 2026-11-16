@@ -1,0 +1,4 @@
+Lora (lora-variable.ttf)
+Copyright 2011 The Lora Project Authors (https://github.com/cyrealtype/Lora-Cyrillic), with Reserved Font Name "Lora".
+Licensed under the SIL Open Font License, Version 1.1: https://scripts.sil.org/OFL
+File ini disertakan tanpa diubah.

@@ -1,0 +1,331 @@
+# Sofeeya Store POS — Panduan Upload ke Hostinger
+
+Versi ini terdiri dari HTML + JavaScript biasa (tanpa proses build), API PHP, dan database MySQL. Versi ini berjalan di paket hosting Hostinger mana pun yang mendukung PHP (Premium / Business / Cloud).
+
+## Isi folder
+
+| File / folder | Fungsi |
+|---|---|
+| `index.html` | Aplikasi utama: kasir, dashboard, laporan, produk, promo, member, dll. |
+| `absen.html` | Halaman absen pegawai (datang/pulang) |
+| `cek-stok.html` | Halaman cek stok untuk petugas |
+| `assets/` | Tampilan (CSS), logika (JS), ikon |
+| `api/index.php` | Server API, terhubung ke database |
+| `api/config.php` | **Isi data database Anda di sini** |
+| `database.sql` | Struktur tabel + akun awal, untuk diimpor ke MySQL |
+| `uploads/produk/` | Tempat foto produk. Harus bisa ditulis server (izin **755**). |
+
+## Memperbarui dari versi sebelumnya
+
+Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php` yang berisi password database. Jangan impor ulang `database.sql` karena data akan hilang. Kolom-kolom baru ditambahkan otomatis saat aplikasi dibuka pertama kali.
+
+## Fitur toko fashion (versi ini)
+
+| Fitur | Di mana | Catatan |
+|---|---|---|
+| **Varian warna × ukuran** | Produk & stok → *Barang baru* | Satu model punya banyak varian. Setiap varian punya stok & barcode sendiri. Di kasir tampil satu kartu, lalu pilih warna & ukuran. |
+| **Matriks stok** | Produk & stok → tombol *Stok* | Isi stok semua warna/ukuran dalam satu tabel. Cocok saat kiriman konveksi datang atau saat stok opname. |
+| **Foto produk** | Produk & stok → klik gambar kecil di kiri | Foto dikecilkan otomatis. Tampil di kasir agar pegawai cepat menemukan barang. |
+| **Tukar size / retur** | Kasir → *Tukar / retur*, atau scan barcode invoice di struk | Pilih barang yang dikembalikan, lalu ambil pengganti. Selisih dibayar atau dikembalikan otomatis. Stok kembali otomatis. Batas hari diatur di Pengaturan. |
+| **Saluran penjualan** | Kasir → layar Pembayaran | Toko, WhatsApp, Instagram, Shopee, TikTok Shop (bisa diubah di Pengaturan). Omzet per saluran tampil di Dashboard. |
+| **Ukuran & warna terlaris** | Dashboard | Panduan restok: ukuran/warna mana yang paling cepat habis. |
+| **Barang lambat laku** | Dashboard | Barang yang masih ada stok tetapi tidak terjual 45 hari, beserta modal yang tertahan. Cocok dijadikan promo cuci gudang. |
+| **Impor varian dari Excel** | Produk & stok → *Impor* | Template baru punya kolom Model, Warna, Ukuran — satu baris per varian. |
+
+## Memori kasir & printer (tidak hilang saat halaman dimuat ulang)
+
+| Yang diingat | Keterangan |
+|---|---|
+| **Keranjang yang belum dibayar** | Barang, member, voucher, biaya, pengiriman, dan retur tersimpan otomatis di perangkat. Setelah refresh / HP restart, keranjang kembali. Harga & stok dicek ulang; barang yang sudah habis dikeluarkan. |
+| **Transaksi saat refresh** | Bila halaman dimuat ulang tepat saat menekan *Selesaikan transaksi*, aplikasi mengecek ke server. Transaksi yang sudah tersimpan tidak akan tercatat dua kali; layar struknya muncul lagi. |
+| **Struk terakhir** | Kasir → tombol printer di atas → *Cetak ulang struk terakhir*. |
+| **Printer Bluetooth** | Printer terakhir diingat. Di Chrome yang mendukung, langsung tersambung lagi otomatis. Bila belum, cukup satu ketukan *Sambungkan* (hanya printer Anda yang muncul), atau aplikasi menyambung sendiri saat mencetak. Bila printer mati sebentar, aplikasi mencoba menyambung ulang. |
+| **Pengaturan cetak** | Menu Printer: *Cetak struk otomatis* dan lebar kertas 58 / 80 mm — disimpan per perangkat. |
+
+Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
+
+## Website katalog untuk Google (versi 26–28)
+
+Versi 28: bagian baru **Cara pesan dari rumah** (pilih → pesan via WhatsApp → ambil di toko / antar dalam kota / kirim ke luar kota) dan **Belanja di Sofeeya Store** (harga bersahabat, poin member, harga sama dengan di toko). **Testimoni** diisi admin di Katalog website → Info toko (satu per baris: Nama | Ulasan | Sumber) — hanya ulasan asli yang sudah diizinkan; bagian ini baru muncul setelah diisi. Panduan tampilan ada di DESIGN.md.
+
+Tampilan versi 27: "etalase toko" — kanopi bergaris kuning, rel gantungan berisi 3 barang dengan label harga (berayun sekali saat dibuka), kartu barang berbentuk badan baju dengan label harga gantung; 2 kolom di HP.
+
+Alamat: **https://sofeeyastore.id/katalog/** — halaman publik untuk pembeli, terhubung langsung ke database kasir.
+
+| Bagian | Isi |
+|---|---|
+| Halaman utama | Pembuka, promo otomatis hari ini, katalog per kategori, alamat & jam buka, peta, tanya jawab |
+| Halaman barang | /katalog/p/nama-barang — foto, harga, pilihan warna & ukuran yang masih ada, tombol **Pesan via WhatsApp** (pesan otomatis berisi barang, warna, ukuran, harga, link) |
+| Harga | Sama dengan kasir: harga − harga khusus − promo otomatis terbaik. Promo dengan minimal belanja / paket tampil sebagai info |
+| Stok | Barang yang stoknya habis otomatis hilang dari website; varian habis tidak bisa dipilih |
+| Google | Judul & deskripsi per halaman, data terstruktur (ClothingStore, Product, FAQ), sitemap otomatis, robots.txt |
+
+**Menu Katalog website** di aplikasi:
+- **Admin**: menyalakan *Tampil* per barang, **Edit** (nama di website, deskripsi, urutan), tab **Info toko** (kalimat pembuka, tentang toko, alamat, link Google Maps, WhatsApp, Instagram, jam & hari buka, tanya jawab).
+- **Pegawai (kasir) & admin**: tombol **Foto** → *Tambah foto* (bisa langsung dari kamera HP, maks. 8 foto per barang, foto otomatis dikecilkan), geser urutan, hapus. Foto pertama juga dipakai di layar kasir.
+
+**Supaya cepat muncul di Google (dilakukan sekali oleh pemilik):**
+1. Isi tab **Info toko** lengkap dan sama persis dengan profil Google Maps toko (nama, alamat, nomor, jam buka).
+2. Daftarkan sofeeyastore.id di **Google Search Console** → tambahkan sitemap `https://sofeeyastore.id/katalog/sitemap.xml` → minta pengindeksan untuk `https://sofeeyastore.id/katalog/`.
+3. Di **Google Business Profile** (Maps) toko, isi kolom Situs web dengan `https://sofeeyastore.id/katalog/`.
+4. Pasang link yang sama di bio Instagram, status WhatsApp, dan stiker/struk.
+5. Beri nama barang yang dicari orang (mis. "Kemeja Kerja Wanita Linen") dan deskripsi bahan & ukuran; tambah foto secara rutin.
+
+Folder baru di server: `katalog/` (ikut zip) dan `uploads/katalog/` (dibuat otomatis saat foto pertama diunggah — jangan dihapus saat update).
+
+## Jual barang reject di kasir (versi 22–25)
+
+Barang yang sudah dicatat di **Laporan keuangan → Barang reject** bisa dijual lagi dengan **potongan Rupiah** dari harga normal.
+
+**Admin mengatur potongan bawaan** (opsional): Laporan keuangan → Barang reject → tombol **Edit** di baris barangnya → isi potongan per pcs mis. 50000 (harga jadi langsung tampil) → Simpan. Di menu Edit admin juga bisa membetulkan alasan dan catatan. Tombol Edit hanya muncul untuk admin. Potongan bisa juga diisi saat menambah barang reject.
+
+**Kasir menjual:**
+1. Di layar Kasir tekan **Reject** (ikon segi enam di samping tombol Barang), pilih barangnya.
+2. Potongan bawaan admin sudah terisi; harga normal, potongan, dan harga jadi langsung tampil.
+3. Pakai potongan bawaan → **tanpa PIN**. Potongan diubah, atau admin belum mengatur potongan → admin mengetik **PIN admin**. Admin yang login tidak perlu PIN.
+4. Barang masuk keranjang dengan label *Reject*, lalu bayar seperti biasa (boleh digabung dengan barang biasa). Di struk tampil harga normal dan baris Diskon (Potongan).
+
+| Aturan | Keterangan |
+|---|---|
+| Promo & diskon member | Tidak berlaku untuk barang reject (hanya potongan reject) |
+| Poin member | Barang reject tidak menambah poin |
+| Stok | Tidak berkurang lagi, karena sudah dikeluarkan saat dicatat reject |
+| Retur / tukar | Barang reject tidak bisa diretur atau ditukar |
+| Laporan | Kolom *Potongan / pcs* dan *Terjual* di Barang reject. Kerugian reject hanya dihitung dari yang belum terjual; yang terjual masuk penjualan, potongan, & HPP |
+| Hapus barang reject | **Khusus admin**: tombol **Hapus**. Catatan reject dibatalkan dan barang kembali ke stok. Bila sebagian sudah terjual, hanya sisa yang belum terjual yang kembali ke stok. Bila semua sudah terjual, batalkan transaksinya dulu |
+
+Harga yang disetujui berlaku 12 jam dan tidak bisa diubah kasir; untuk potongan lain hapus dari keranjang lalu pilih lagi.
+
+## Perbaikan hasil audit (versi 21)
+
+| Perubahan | Keterangan |
+|---|---|
+| Tidak diindeks Google | `robots.txt` baru + tanda *noindex* di semua halaman, jadi aplikasi internal tidak muncul di hasil pencarian |
+| Pengaman server | `.htaccess` menambah HSTS (selalu HTTPS) dan X-Frame-Options (aplikasi tidak bisa ditampilkan di dalam situs lain) |
+| Halaman demo ditutup | `demo.html`, `api/demo.php`, `api/demo-leads.php` dan folder `api/demo-data` ditolak server walaupun masih tersisa. Tetap hapus file-file itu dari Hostinger dan GitHub |
+| Menu QRIS | Hanya admin. Kasir tetap bisa menerima QRIS saat bayar di layar Kasir |
+
+## Aturan memakai promo (versi 20)
+
+- **Hanya 1 promo aktif hari itu:** promo terpotong otomatis di kasir (promo berkode tetap lewat kode).
+- **2 promo atau lebih aktif bersamaan:** tidak ada yang otomatis. Kasir mengetuk kartu promo yang dipakai (ketuk lagi untuk melepas). Promo berkode juga bisa dipilih dengan mengetuk kartunya.
+- **"Bisa digabung" tidak dicentang:** promo itu berlaku sendirian. Bila kasir memilih promo lain, promo sebelumnya otomatis dilepas.
+- **"Bisa digabung" dicentang pada beberapa promo:** promo-promo itu boleh dipakai bersamaan.
+
+## Promo "Harga jadi" (versi 18–19)
+
+Saat versi 19 pertama dibuka, semua promo lama berjenis "Potongan tetap" otomatis diubah menjadi "Harga jadi (harga tetap)": nilai 99000 berarti barang dijual Rp99.000 (contoh: Rp149.000 → Rp99.000).
+
+Jenis promo kini bernama jelas:
+
+| Jenis | Isi nilai | Contoh hasil (barang Rp159.000) |
+|---|---|---|
+| Harga jadi (harga tetap) | harga jual baru per pcs | isi 99000 → dijual Rp99.000 |
+| Diskon persen (%) | persen | isi 10 → Rp143.100 |
+| Potongan Rupiah per pcs | besar potongan | isi 20000 → Rp139.000 |
+
+Contoh hasil langsung tampil di bawah kolom Nilai saat mengisi. Harga promo otomatis tampil di kartu barang dan jendela pilih warna/ukuran (harga lama dicoret). Bila "Potongan Rupiah" diisi terlalu besar, aplikasi menawarkan mengganti ke "Harga jadi".
+
+## Broadcast WhatsApp ke member (versi 17)
+
+Menu **Member → Broadcast WA** (admin dan kasir; menghapus riwayat broadcast hanya admin) untuk mengirim promo atau info ke banyak member sekaligus.
+
+1. Tekan **Broadcast baru**, tulis pesan. Sisipkan **Nama depan**, **Poin**, atau **Nama toko** agar setiap pesan terasa pribadi (pratinjau tampil di kanan).
+2. Pilih penerima: semua member, member dengan poin minimal tertentu, member yang belum belanja selama sekian hari, belanja terbanyak, atau pilih sendiri. Member tanpa nomor WA atau yang ditandai "tidak mau dihubungi" otomatis tidak diikutkan.
+3. Kirim dengan salah satu cara:
+   - **Lewat WhatsApp (gratis):** aplikasi membuka WhatsApp dengan pesan sudah terisi untuk satu member; tekan kirim di WhatsApp, kembali, lanjut ke member berikutnya.
+   - **Otomatis (Fonnte):** bila token Fonnte sudah diisi di Pengaturan toko → Notifikasi transaksi → WhatsApp, aplikasi mengirim sendiri satu per satu dengan jeda (minimal 8 detik, disarankan 30 detik). Biarkan halaman terbuka sampai selesai.
+4. Bila ada yang membalas STOP, tekan **Tidak mau dihubungi** (atau centang di data member) agar tidak dikirimi lagi.
+
+Agar nomor WhatsApp toko aman: kirim hanya ke pelanggan yang pernah belanja, jangan lebih dari ±100 pesan per hari, dan beri jeda antar pesan.
+
+## Tampilan kasir "Etalase" (versi 15)
+
+Halaman Kasir kini meniru suasana toko: foto barang berada di bingkai melengkung seperti ceruk rak, warna sage seperti meja kasir, tombol Bayar berwarna kuningan, promo berbentuk label harga gantung, dan keranjang seperti nota kertas. Nama barang dan total memakai huruf Lora (sudah disertakan di `assets/fonts`, lisensi SIL OFL, berfungsi tanpa internet). Notifikasi "Ditambahkan" kini muncul di bawah sehingga tidak menutupi keranjang. Halaman lain tidak berubah.
+
+## Tampilan & animasi (versi 14)
+
+Aplikasi kini bergerak lebih halus: halaman muncul dengan naik pelan, angka di dashboard dan laporan "berjalan" ke nilainya, kartu barang terangkat saat disentuh, barang baru meluncur ke keranjang dan total berdenyut saat berubah, jendela (modal) muncul memantul dan menutup memudar, serta notifikasi kecil punya garis waktu.
+
+- Semua animasi dibuat ringan (tanpa pustaka tambahan) sehingga tetap cepat di HP.
+- Bila di pengaturan HP/komputer dipilih **Kurangi gerakan / Reduce motion**, semua animasi otomatis mati dan angka langsung tampil.
+
+## Laporan keuangan (menu baru)
+
+Menu **Laporan** kini bernama **Laporan keuangan** dan berisi 9 sub menu. Pembaruan database berjalan otomatis saat aplikasi pertama dibuka setelah upload (tidak perlu impor SQL).
+
+| Sub menu | Isi | Admin | Kasir |
+|---|---|---|---|
+| Transaksi | Penjualan harian / bulanan / tahunan, filter kasir-metode-saluran, ekspor Excel | ✓ semua periode | hanya hari ini |
+| Laba rugi | Penjualan bersih − HPP = laba kotor − beban (komisi, barang reject, biaya operasional) = laba bersih; per bulan & tahun | ✓ | – |
+| Persediaan | Barang masuk & keluar per tanggal / per barang / rincian | ✓ | – |
+| Produk terlaris | Per model atau per varian, plus per kategori | ✓ | – |
+| Pembayaran | Rekap Tunai, QRIS, Debit, Transfer per jam / hari / bulan | ✓ | – |
+| Member | Belanja terbanyak & pembelian member per semester | ✓ (+ atur voucher) | ✓ |
+| Pegawai | Waktu absen, rekap absen, komisi | semua pegawai | data sendiri |
+| Retur | Tukar & pengembalian barang | ✓ semua periode | hanya hari ini |
+| Barang reject | Catat barang rusak (stok otomatis berkurang) | tambah & hapus | tambah saja |
+
+Catatan:
+- **Biaya operasional** (gaji, sewa, listrik, dll.) dicatat di sub menu Laba rugi → "Catat biaya" agar laba bersih akurat.
+- **Debit** sekarang metode pembayaran tersendiri (terpisah dari Transfer).
+- Komisi di laporan kasir muncul bila **nama sales** di menu Sales & komisi sama dengan **nama akun** kasir tersebut.
+- Menghapus data reject (admin) akan mengembalikan stok barangnya.
+
+## Notifikasi transaksi di HP pemilik
+
+Setiap transaksi masuk, HP pemilik menampilkan pemberitahuan seperti pesan aplikasi — **walau aplikasi kasir sedang ditutup**. Contoh:
+
+> 🛍️ **Rp249.000 · Transaksi baru**
+> INV261113-1234 · Instagram · Nisa
+> Kemeja Kantor Basic - Putih / M ×1, Pashmina Ceruty - Sage ×2
+> Hari ini: Rp2.450.000 · 14 transaksi
+
+Gratis, tanpa nomor WhatsApp, tanpa Telegram, tanpa layanan pihak ketiga. Mengetuk notifikasi membuka halaman Laporan.
+
+**Cara mengaktifkan (sekali saja, di HP pemilik):**
+1. Pastikan situs memakai **https://** — di hPanel: *Keamanan → SSL* (gratis). Notifikasi tidak bisa di http.
+2. Di HP pemilik, buka aplikasi dan **masuk sebagai admin**.
+3. **Pengaturan → Notifikasi transaksi → Aktifkan notifikasi di HP ini**, lalu tekan **Izinkan** saat browser bertanya.
+4. Tekan **Kirim tes ke semua HP** — notifikasi tes harus muncul.
+
+| HP | Catatan |
+|---|---|
+| **Android** | Pakai Chrome (atau Edge/Samsung Internet). Bisa langsung dari browser; lebih baik lagi bila aplikasi dipasang ke layar utama. |
+| **iPhone / iPad** | Wajib iOS 16.4 ke atas. Pasang dulu: buka situs di Safari → **Bagikan → Tambah ke Layar Utama**, buka dari ikon itu, baru aktifkan notifikasi. |
+
+- Bisa lebih dari satu HP (misalnya pemilik dan admin). Daftar HP penerima tampil di panel dan bisa dihapus.
+- Atur isi pemberitahuan: total minimal, nama barang, omzet hari ini, serta tukar/retur.
+- Bila tidak muncul: cek *Pengaturan HP → Aplikasi → Chrome → Notifikasi* menyala, dan mode hemat baterai tidak membatasi Chrome.
+- WhatsApp (Fonnte/CallMeBot) tetap tersedia sebagai tambahan di bagian *Juga kirim lewat WhatsApp*.
+
+Menu **Info kasir** dan **Rumah tautan** dihapus karena tidak dipakai dalam alur kerja toko.
+
+## Langkah 0 — PENTING jika domain Anda dipakai website Horizons
+
+Website buatan **Hostinger Horizons** TIDAK punya menu File Manager, Databases, maupun PHP.
+Karena itu aplikasi ini harus dipasang sebagai **website PHP/HTML biasa** pada paket hosting yang sama:
+
+1. Buka hPanel → menu **Websites** (Situs web) → tombol **+ Add website** (Tambah situs web).
+2. Pilih **Custom PHP/HTML website** / **Empty PHP/HTML website** (website kosong) — JANGAN pilih Horizons, WordPress, atau Website Builder.
+3. Saat diminta domain, pilih salah satu:
+   - **Subdomain** dari domain Anda, misalnya `kasir.domainanda.com` (website Horizons tetap jalan di domain utama), atau
+   - **Domain sementara** gratis dari Hostinger untuk mencoba dulu.
+4. Setelah website baru jadi, klik **Dashboard / Manage** pada website itu. Di menu samping sekarang akan muncul **Files → File Manager** dan **Databases**. Lanjutkan ke Langkah 1.
+
+> Jika menu "Add website" tidak ada, kemungkinan Anda hanya berlangganan Horizons tanpa paket hosting Web/Cloud. Hubungi live chat Hostinger dan tanyakan: "Bagaimana menambah website Custom PHP/HTML di paket saya?"
+
+## Langkah 1 — Buat database MySQL
+
+1. Di dashboard website baru → **Databases → Management** (pada tampilan baru: **Databases → MySQL Databases**).
+2. Isi *Database name*, *Username*, dan *Password*, lalu klik **Create**.
+   Catat ketiganya. Hostinger menambahkan awalan, misalnya `u123456789_sofeeya`.
+3. Klik **Enter phpMyAdmin** pada database tersebut.
+4. Buka tab **Import → Choose file →** pilih `database.sql` **→ Go**.
+   Jika berhasil, akan muncul 14 tabel (users, products, transactions, …).
+
+## Langkah 2 — Isi konfigurasi
+
+Buka `api/config.php`, lalu ganti tiga baris ini:
+
+```php
+'db_name' => 'u123456789_sofeeya',
+'db_user' => 'u123456789_admin',
+'db_pass' => 'PASSWORD_DATABASE_ANDA',
+```
+
+`db_host` biarkan `localhost`.
+
+## Langkah 3 — Upload file
+
+1. Di dashboard website baru → **Files → File Manager** → buka folder `public_html`.
+2. Klik **Upload**, lalu unggah file **ZIP**-nya. Klik kanan → **Extract**.
+3. Pastikan `index.html` berada langsung di dalam folder tujuan, bukan di dalam folder ZIP lagi.
+
+## Alternatif Langkah 2–3: lewat GitHub
+
+1. Ekstrak ZIP di komputer. Buat repositori baru di github.com (pilih **Private**), klik **uploading an existing file**, lalu seret **isi** folder (bukan file ZIP-nya) — `index.html` harus berada di halaman depan repositori. Klik **Commit changes**.
+2. hPanel → website PHP/HTML Anda → **Dashboard → Advanced → Git** → **Continue with GitHub** → izinkan akses → pilih repositori → branch `main`, folder `public_html` → **Deploy**. Folder `public_html` harus kosong saat deploy pertama (hapus file `default.php` bila ada).
+3. **Jangan isi password di `api/config.php` yang ada di GitHub.** Setelah deploy, buka **File Manager → public_html/api**, buat file baru `config.local.php`, salin isi dari `config.local.contoh.php`, lalu isi data database Anda. File ini tidak akan tertimpa saat deploy berikutnya.
+4. Impor `database.sql` tetap lewat phpMyAdmin (Langkah 1).
+5. Setiap kali ada perubahan kode di GitHub, Hostinger otomatis memperbarui website (atau klik **Redeploy**).
+
+## Langkah 4 — Aktifkan SSL (HTTPS)
+
+hPanel → **Security → SSL** → pasang SSL gratis. HTTPS wajib untuk:
+- kamera (scan barcode lewat HP),
+- printer Bluetooth,
+- lokasi GPS saat absen.
+
+Setelah SSL aktif, buka `.htaccess` dan hapus tanda `#` pada 5 baris "Paksa HTTPS".
+
+## Langkah 5 — Masuk pertama kali
+
+Buka domain Anda, lalu masuk dengan:
+
+- **Admin:** `admin@toko.com` / `admin12345`
+- **Kasir:** `kasir@toko.com` / `kasir12345`
+
+**Segera lakukan ini:**
+1. *Akun saya* → ganti kata sandi admin.
+2. *Pengguna* → ubah email/sandi kasir atau buat akun pegawai sendiri.
+3. *Pengaturan toko* → ganti **kode supervisor** (bawaan `1234`), alamat & telepon struk.
+4. *Pengaturan toko → Jadwal & absensi* → buka dari HP yang tersambung WiFi toko, tekan **Pakai IP ini**, lalu simpan.
+
+## Memindahkan data produk lama
+
+Data dari aplikasi lama (Horizons/PocketBase) **tidak ikut** di file ekspor ZIP — yang ada hanya kodenya.
+Cara tercepat memindahkan:
+1. Di aplikasi lama: *Produk & Stok* → ekspor ke Excel.
+2. Di aplikasi baru: *Produk & stok → Impor* → pilih file tersebut.
+   Nama kolom lama (Nama Produk, Barcode / Kode, Harga Beli, Harga Jual, Stok, dst.) dikenali otomatis.
+3. Lakukan hal yang sama untuk *Member → Impor*.
+
+## Pasang di HP seperti aplikasi
+
+Buka domain di **Chrome Android** → menu ⋮ → **Tambahkan ke layar utama**.
+
+## Pemecahan masalah
+
+| Gejala | Solusi |
+|---|---|
+| "Tidak dapat terhubung ke database" | Cek nama database, user, dan password di `api/config.php` (termasuk awalan `u123…_`). |
+| "Respons server tidak valid" | Pastikan folder `api/` ikut terunggah dan versi PHP ≥ 7.4 (hPanel → Advanced → PHP Configuration). |
+| Login berhasil lalu langsung keluar lagi | Akses lewat satu alamat saja (pilih dengan atau tanpa `www`) dan gunakan HTTPS. |
+| Absen ditolak "bukan jaringan toko" | IP WiFi toko bisa berubah bila modem restart. Perbarui lewat *Pengaturan toko → Pakai IP ini*. |
+| Tombol "Aktifkan notifikasi" tidak muncul / ada peringatan https | Aktifkan SSL di hPanel, lalu buka situs dengan https://. Untuk memaksa https, hapus tanda `#` pada baris pengalihan HTTPS di file `.htaccess`. |
+| Notifikasi diblokir di HP | Ketuk ikon gembok di samping alamat situs → Izin → Notifikasi → Izinkan, lalu muat ulang. |
+| Tes WhatsApp gagal "token invalid" / "device disconnected" | Salin ulang token dari dashboard Fonnte; pastikan perangkat di Fonnte berstatus *connect* (scan ulang QR bila putus). |
+| Upload foto gagal "Folder uploads/produk tidak dapat dibuat" | Di File Manager buat folder `uploads/produk`, lalu klik kanan → Permissions → **755**. |
+| Ingin melihat pesan error detail | Sementara ubah `'debug' => true` di `api/config.php`, lalu kembalikan ke `false`. |
+
+## Cadangan data (backup)
+
+hPanel → **Files → Backups** → *Database backups*. Disarankan mengunduh cadangan seminggu sekali.
+Cara lain: phpMyAdmin → **Export**.
+
+## QRIS dengan nominal otomatis
+
+1. Login admin → **Pengaturan toko → QRIS toko**.
+2. Klik **Foto / gambar QRIS** dan pilih foto QRIS statis yang ada di stand kasir (dari bank, GoPay/DANA/ShopeePay Merchant), atau **Scan pakai kamera**.
+3. Pastikan status **Valid** dan nama merchant benar → **Coba buat QR Rp1.000** → scan dengan HP Anda untuk memastikan nominal muncul → **Simpan QRIS**.
+4. Di kasir pilih metode **QRIS** saat membayar: kode QR dengan total belanja langsung tampil. Pembeli scan, nominal sudah terisi.
+5. Menu **QRIS** di samping (khusus admin sejak versi 21) dipakai untuk menerima pembayaran cepat dengan nominal bebas (tidak tercatat sebagai penjualan). Kasir tetap memakai QRIS lewat layar Kasir.
+
+Catatan: aplikasi tidak bisa mengetahui otomatis apakah dana sudah masuk. Kasir tetap mengecek notifikasi di aplikasi merchant QRIS sebelum menekan **Sudah dibayar**. Konfirmasi otomatis membutuhkan payment gateway berbayar (Midtrans / Xendit).
+
+## Pasang sebagai aplikasi di HP / tablet
+
+Syarat: website sudah memakai **HTTPS** (Langkah 4 — SSL aktif).
+
+- **Android (Chrome):** buka website → login → menu samping **Pasang aplikasi di HP** → **Instal**. Atau menu ⋮ Chrome → **Instal aplikasi**.
+- **iPhone / iPad (Safari):** buka website → tombol **Bagikan** → **Tambahkan ke Layar Utama**.
+- Ikon **Sofeeya POS** muncul di layar utama dan terbuka layar penuh seperti aplikasi biasa. Data tetap tersimpan di server, jadi semua HP/tablet melihat data yang sama.
+- Ingin file **APK** untuk dibagikan atau diunggah ke Play Store? Masukkan alamat website di **pwabuilder.com** → *Package for stores* → Android.
+
+## Tampilan potret / lanskap
+
+- Aplikasi otomatis menyesuaikan arah layar: **lanskap** = produk di kiri, keranjang di kanan; **potret** tablet = produk di atas, keranjang di bawah; **potret** HP = tombol keranjang di bawah layar.
+- Untuk mengunci tampilan, ketuk tombol **putar** (ikon HP dengan panah) di layar kasir, atau menu samping **Tampilan potret / lanskap** → pilih *Otomatis*, *Potret*, atau *Lanskap*. Pilihan disimpan per perangkat.
+- Menu samping tersembunyi otomatis: di tablet/laptop tampil sebagai ikon dan melebar saat disentuh/didekati kursor; di HP dibuka lewat tombol ☰.
+
