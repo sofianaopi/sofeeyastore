@@ -759,3 +759,15 @@ body.in-kasir.compact .toasts,body.in-kasir.d-phone .toasts{left:50%;transform:t
 .pos .promostrip .pc-note{color:var(--k-ink2,#5B675F)}
 .promostrip .pc-note{position:sticky;left:0;z-index:1;background:var(--bg,#F5F7FA);padding:6px 10px 6px 0;max-width:200px}
 .pos .promostrip .pc-note{background:var(--k-bg)}
+
+/* v21: jual barang reject */
+.rj-list{display:flex;flex-direction:column;gap:6px;max-height:55vh;overflow:auto}
+.rj-item{display:flex;align-items:center;gap:10px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--card);cursor:pointer;font:inherit;color:inherit}
+.rj-item:hover,.rj-item:focus-visible{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-soft);outline:none}
+.rj-item .grow{display:flex;flex-direction:column;gap:2px;min-width:0}
+.line.rjline .c{align-items:center;gap:8px}
+body.d-phone .pos .pos-tools{gap:6px;padding-left:10px;padding-right:10px}
+body.d-phone .pos .pos-tools>.btn{height:44px;min-width:44px;padding:0 10px}
+.rj-calc{display:flex;flex-wrap:wrap;gap:6px 18px;padding:10px 12px;border-radius:var(--r-sm);background:var(--paper);font-size:14px;color:var(--ink-2)}
+.rj-calc b{color:var(--ink)} .rj-calc b.money{color:var(--money)} .rj-calc b.danger{color:var(--danger)}
+.line.rjline .sum s{display:block;font-size:12px;color:var(--ink-3);font-weight:500}

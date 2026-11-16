@@ -44,6 +44,29 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Jual barang reject di kasir (versi 22–24)
+
+Barang yang sudah dicatat di **Laporan keuangan → Barang reject** bisa dijual lagi dengan **potongan Rupiah** dari harga normal.
+
+**Admin mengatur potongan bawaan** (opsional): Laporan keuangan → Barang reject → kolom **Potongan / pcs** → isi mis. 50000 → Simpan. Bisa juga diisi saat menambah barang reject.
+
+**Kasir menjual:**
+1. Di layar Kasir tekan **Reject** (ikon segi enam di samping tombol Barang), pilih barangnya.
+2. Potongan bawaan admin sudah terisi; harga normal, potongan, dan harga jadi langsung tampil.
+3. Pakai potongan bawaan → **tanpa PIN**. Potongan diubah, atau admin belum mengatur potongan → admin mengetik **PIN admin**. Admin yang login tidak perlu PIN.
+4. Barang masuk keranjang dengan label *Reject*, lalu bayar seperti biasa (boleh digabung dengan barang biasa). Di struk tampil harga normal dan baris Diskon (Potongan).
+
+| Aturan | Keterangan |
+|---|---|
+| Promo & diskon member | Tidak berlaku untuk barang reject (hanya potongan reject) |
+| Poin member | Barang reject tidak menambah poin |
+| Stok | Tidak berkurang lagi, karena sudah dikeluarkan saat dicatat reject |
+| Retur / tukar | Barang reject tidak bisa diretur atau ditukar |
+| Laporan | Kolom *Potongan / pcs* dan *Terjual* di Barang reject. Kerugian reject hanya dihitung dari yang belum terjual; yang terjual masuk penjualan, potongan, & HPP |
+| Hapus barang reject | **Khusus admin**: tombol **Hapus**. Catatan reject dibatalkan dan barang kembali ke stok. Bila sebagian sudah terjual, hanya sisa yang belum terjual yang kembali ke stok. Bila semua sudah terjual, batalkan transaksinya dulu |
+
+Harga yang disetujui berlaku 12 jam dan tidak bisa diubah kasir; untuk potongan lain hapus dari keranjang lalu pilih lagi.
+
 ## Perbaikan hasil audit (versi 21)
 
 | Perubahan | Keterangan |

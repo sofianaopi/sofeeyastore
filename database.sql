@@ -267,6 +267,9 @@ CREATE TABLE IF NOT EXISTS rejects (
   note VARCHAR(300) NOT NULL DEFAULT '',
   user_id INT NULL,
   user_name VARCHAR(200) NOT NULL DEFAULT '',
+  sold_qty INT NOT NULL DEFAULT 0,
+  sold_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  discount DECIMAL(14,2) NOT NULL DEFAULT 0,
   created DATETIME NULL,
   updated DATETIME NULL,
   INDEX idx_rejects_created (created)
@@ -346,7 +349,7 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('sales_channels', '["Toko","WhatsApp","Instagram","Shopee","TikTok Shop"]', NOW(), NOW()),
  ('size_sets', '["S, M, L, XL","XS, S, M, L, XL, XXL","All size","M, L, XL, XXL, 3XL","27, 28, 29, 30, 31, 32","36, 37, 38, 39, 40"]', NOW(), NOW()),
  ('return_days', '7', NOW(), NOW()),
- ('schema_version', '9', NOW(), NOW());
+ ('schema_version', '11', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());

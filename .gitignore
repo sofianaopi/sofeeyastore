@@ -2,3 +2,7 @@
 api/config.local.php
 *.zip
 .DS_Store
+
+# Foto produk diunggah langsung di server, tidak disimpan di GitHub
+uploads/produk/*
+!uploads/produk/.gitkeep

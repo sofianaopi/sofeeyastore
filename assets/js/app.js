@@ -228,7 +228,7 @@ async function Kasir(page) {
   const S = App.settings, isAdmin = App.isAdmin();
   const st = {
     products: [], promos: [], members: [], sales: [], rewards: [],
-    cart: [], cat: 'Semua', q: '', memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null,
+    cart: [], rj: [], cat: 'Semua', q: '', memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null,
   };
   page.innerHTML = `
   <div class="pos">
@@ -238,6 +238,7 @@ async function Kasir(page) {
         <form class="scanbox" data-scanform>${icon('barcode')}<input data-scan placeholder="Scan barcode atau ketik nama barang…" autocomplete="off" aria-label="Scan barcode atau cari barang"></form>
         <button class="btn icon" data-camera title="Scan pakai kamera" aria-label="Scan pakai kamera">${icon('camera')}</button>
         <button class="btn" data-addprod title="Tambah barang baru">${icon('plus')}<span class="hide-sm">Barang</span></button>
+        <button class="btn" data-rjsell title="Jual barang reject (harga dari admin)">${icon('box')}<span class="hide-sm">Reject</span></button>
         <button class="btn icon prn-btn" data-prn title="Printer & struk terakhir" aria-label="Printer & struk terakhir">${icon('printer')}<i class="prn-dot"></i></button>
         <button class="btn icon" data-lay title="Tampilan potret / lanskap" aria-label="Tampilan potret / lanskap">${icon('rotate')}</button>
       </div>
@@ -290,9 +291,9 @@ async function Kasir(page) {
   let seenQty = null, prevTotal = null, gridShown = false; // untuk animasi keranjang & grid
   function saveDraft() {
     try {
-      const empty = !st.cart.length && !st.retur && !st.memberId && !st.fees.length && !st.shipping && !st.vouchers.length && !st.reward;
+      const empty = !st.cart.length && !st.rj.length && !st.retur && !st.memberId && !st.fees.length && !st.shipping && !st.vouchers.length && !st.reward;
       if (empty && !pending) { localStorage.removeItem(DKEY); return; }
-      localStorage.setItem(DKEY, JSON.stringify({ v: 1, at: Date.now(), ref, pending, cart: st.cart, memberId: st.memberId, vouchers: st.vouchers.map((p) => p.id), fees: st.fees, shipping: st.shipping, reward: st.reward, note: st.note, retur: st.retur, offerShown: st.offerShown, cat: st.cat }));
+      localStorage.setItem(DKEY, JSON.stringify({ v: 1, at: Date.now(), ref, pending, cart: st.cart, rj: st.rj, memberId: st.memberId, vouchers: st.vouchers.map((p) => p.id), fees: st.fees, shipping: st.shipping, reward: st.reward, note: st.note, retur: st.retur, offerShown: st.offerShown, cat: st.cat }));
     } catch (e) { /* penyimpanan penuh / mode privat */ }
   }
   const rememberLast = (trx) => { try { localStorage.setItem(LKEY, JSON.stringify({ id: trx.id, invoice: trx.invoice, at: Date.now() })); } catch (e) { /* abaikan */ } };
@@ -317,12 +318,13 @@ async function Kasir(page) {
       if (q < c.qty || (!manual && p.price !== c.price)) changed++;
       return { ...c, name: p.name, barcode: p.barcode, category: p.category, model: p.model, size: p.size, color: p.color, cost: p.cost, commission: p.commission, discount: p.discount || 0, stock: p.stock, price: manual ? c.price : p.price, original_price: p.price, qty: q };
     }).filter(Boolean);
+    st.rj = (Array.isArray(d.rj) ? d.rj : []).filter((x) => x && x.normal && x.exp * 1000 > Date.now());
     st.memberId = d.memberId && st.members.some((m) => m.id === d.memberId) ? d.memberId : null;
     st.vouchers = (d.vouchers || []).map((id) => st.promos.find((p) => p.id === id)).filter((p) => p && Promo.activeToday(p));
     st.fees = Array.isArray(d.fees) ? d.fees : []; st.shipping = d.shipping || null; st.note = d.note || ''; st.retur = d.retur || null; st.offerShown = !!d.offerShown;
     st.reward = d.reward && st.rewards.some((r) => r.id === d.reward.id) ? d.reward : null;
     if (d.cat && st.products.some((p) => p.category === d.cat && p.stock > 0)) st.cat = d.cat;
-    const n = st.cart.reduce((a, c) => a + c.qty, 0);
+    const n = st.cart.reduce((a, c) => a + c.qty, 0) + st.rj.reduce((a, c) => a + c.qty, 0);
     if (n || st.retur || dropped) toast('Transaksi dipulihkan', `${n} barang di keranjang${st.retur ? ' + retur ' + st.retur.invoice : ''}${dropped ? ` · ${dropped} barang dikeluarkan karena stok habis` : ''}${changed ? ' · harga/stok diperbarui' : ''}`, dropped ? 'err' : 'ok');
   }
   // menu printer & struk terakhir
@@ -367,10 +369,13 @@ async function Kasir(page) {
     const shipFee = st.shipping ? st.shipping.fee || 0 : 0;
     const fee = st.fees.reduce((s, f) => s + f.amount, 0) + shipFee;
     const retAmount = st.retur ? st.retur.items.reduce((s, i) => s + i.price * i.qty, 0) : 0;
-    const total = st.retur ? subtotal - discount + fee - retAmount : Math.max(0, subtotal - discount + fee);
-    const count = cart.reduce((s, c) => s + c.qty, 0);
+    // barang reject: harga final dari admin, di luar promo / diskon member / poin
+    const rjTotal = st.rj.reduce((s, c) => s + c.price * c.qty, 0);
+    const rjNormal = st.rj.reduce((s, c) => s + (c.normal || c.price) * c.qty, 0), rjDisc = rjNormal - rjTotal;
+    const total = st.retur ? subtotal - discount + rjTotal + fee - retAmount : Math.max(0, subtotal - discount + rjTotal + fee);
+    const count = cart.reduce((s, c) => s + c.qty, 0) + st.rj.reduce((s, c) => s + c.qty, 0);
     const promoNames = eff.filter((p) => pc.perPromo[p.id]).map((p) => p.name);
-    return { subtotal, pc, memberDisc, voucher, blocked, rewardDisc, prodDisc, discount, fee, shipFee, total, count, promoNames, eff, m, retAmount };
+    return { subtotal, rjTotal, rjNormal, rjDisc, pc, memberDisc, voucher, blocked, rewardDisc, prodDisc, discount, fee, shipFee, total, count, promoNames, eff, m, retAmount };
   }
 
   // ---------- render
@@ -488,7 +493,10 @@ async function Kasir(page) {
         <span class="pp">@${rupiah(c.price)}${c.price !== c.original_price ? ' <span class="chip amber">diubah</span>' : ''} <button data-price="${c.id}">ubah</button></span>
         <span class="sum">${disc > 0 ? `<s>${rupiah(c.price * c.qty)}</s>${rupiah(c.price * c.qty - disc)}` : rupiah(c.price * c.qty)}</span></div>
         ${disc > 0 ? `<div class="dl">Hemat ${rupiah(disc)}${ip ? ' · ' + esc(ip.promoName) : ''}${c.discount > 0 ? (ip ? ' + ' : ' · ') + 'harga khusus' : ''}</div>` : ''}</div>`;
-    }).join('') : st.retur ? '' : `<div class="empty" style="padding:50px 10px">${icon('cart')}Scan barcode atau ketuk barang untuk mulai.</div>`);
+    }).join('') : st.retur || st.rj.length ? '' : `<div class="empty" style="padding:50px 10px">${icon('cart')}Scan barcode atau ketuk barang untuk mulai.</div>`) +
+      st.rj.map((c, k) => `<div class="line rjline"><div class="t"><b>${esc(c.name)}</b><button class="btn ghost icon sm" data-rjdel="${k}" aria-label="Hapus">${icon('trash')}</button></div>
+        <div class="c"><span class="chip amber">Reject${c.reason ? ' · ' + esc(c.reason) : ''}</span><span class="pp">${c.qty} × ${rupiah(c.price)}</span><span class="sum">${c.normal > c.price ? `<s>${rupiah(c.normal * c.qty)}</s>` : ''}${rupiah(c.price * c.qty)}</span></div>
+        <div class="dl">${c.normal > c.price ? `Potongan ${rupiah(c.normal - c.price)}/pcs` : 'Tanpa potongan'} · ${esc(c.by)} · tanpa promo & poin</div></div>`).join('');
 
     const chips = [
       ...st.vouchers.map((p) => `<span class="chip blue">${esc(p.code || p.name)} <button data-rmv="${p.id}" aria-label="Hapus promo">×</button></span>`),
@@ -505,7 +513,8 @@ async function Kasir(page) {
 
     const eligible = m ? st.rewards.filter((x) => x.points_required <= m.points) : [];
     el('[data-totals]').innerHTML = `
-      <div class="r"><span>Subtotal (${r.count} barang)</span><span>${rupiah(r.subtotal)}</span></div>
+      <div class="r"><span>Subtotal (${r.count} barang)</span><span>${rupiah(r.subtotal + r.rjNormal)}</span></div>
+      ${r.rjDisc > 0 ? `<div class="r minus"><span>Potongan barang reject</span><span>−${rupiah(r.rjDisc)}</span></div>` : ''}
       ${r.prodDisc > 0 ? `<div class="r minus"><span>Harga khusus barang</span><span>−${rupiah(r.prodDisc)}</span></div>` : ''}
       ${r.pc.total > 0 ? `<div class="r minus"><span>Promo</span><span>−${rupiah(r.pc.total)}</span></div>` : ''}
       ${r.memberDisc > 0 ? `<div class="r minus"><span>${r.voucher > 0 ? 'Voucher member' : 'Diskon member ' + num(S.member_discount_percent) + '%'}</span><span>−${rupiah(r.memberDisc)}</span></div>` : ''}
@@ -515,8 +524,8 @@ async function Kasir(page) {
       ${r.retAmount ? `<div class="r minus"><span>Barang dikembalikan</span><span>−${rupiah(r.retAmount)}</span></div>` : ''}
       <div class="r big"><span>${r.total < 0 ? 'Uang dikembalikan' : 'Total'}</span><span${prevTotal !== null && prevTotal !== r.total ? ' class="bump"' : ''}>${rupiah(Math.abs(r.total))}</span></div>
       ${m && eligible.length && !st.reward ? `<button class="btn sm" data-reward style="margin-top:6px;width:100%">${icon('gift')} ${eligible.length} reward poin bisa ditukar</button>` : ''}`;
-    el('[data-pay]').disabled = !st.cart.length && !st.retur;
-    el('[data-pay]').textContent = r.total < 0 ? 'Kembalikan ' + rupiah(-r.total) : st.retur && r.total === 0 ? 'Selesaikan tukar' : (st.cart.length || st.retur) ? 'Bayar ' + rupiah(r.total) : 'Bayar';
+    el('[data-pay]').disabled = !st.cart.length && !st.rj.length && !st.retur;
+    el('[data-pay]').textContent = r.total < 0 ? 'Kembalikan ' + rupiah(-r.total) : st.retur && r.total === 0 ? 'Selesaikan tukar' : (st.cart.length || st.rj.length || st.retur) ? 'Bayar ' + rupiah(r.total) : 'Bayar';
     el('[data-fabcount]').textContent = r.count + ' barang';
     el('[data-fabtotal]').textContent = rupiah(r.total);
     if (prevTotal !== null && prevTotal !== r.total) Motion.replay(el('.cartfab'), 'bump');
@@ -685,7 +694,7 @@ async function Kasir(page) {
     let recent = [];
     const pick = (t) => {
       const back = {}; (t.returned || []).forEach((r) => { back[r.id] = (back[r.id] || 0) + r.qty; });
-      const rows = (t.items || []).map((i) => ({ ...i, left: i.qty - (back[i.id] || 0), unit: Math.round((i.price * i.qty - (i.itemDiscount || 0)) / i.qty), take: 0 }));
+      const rows = (t.items || []).map((i) => ({ ...i, left: i.reject_id ? 0 : i.qty - (back[i.id] || 0), unit: Math.round((i.price * i.qty - (i.itemDiscount || 0)) / i.qty), take: 0 }));
       const age = Math.floor((Date.now() - parseDT(t.created)) / 86400000);
       const draw = () => {
         const sum = rows.reduce((s, i) => s + i.unit * i.take, 0);
@@ -726,9 +735,67 @@ async function Kasir(page) {
     m.$('[data-inv]').oninput = debounce(() => { if (!/^INV\d{6}-/i.test(m.$('[data-inv]').value)) showList(m.$('[data-inv]').value.trim()); }, 200);
   }
 
+  // ---------- jual barang reject: pilih dari daftar Barang reject, harga ditentukan admin (PIN admin untuk kasir)
+  async function rejectSellModal() {
+    const m = modal({ title: 'Jual barang reject', size: 'wide', body: `<div class="stack">
+      <input class="input" data-rq placeholder="Cari nama barang / barcode / alasan…" autocomplete="off">
+      <div data-rlist><div class="empty">Memuat daftar barang reject…</div></div></div>` });
+    let list = [];
+    try { list = await db.list('rejects', { limit: 1000 }); } catch (e) { toastErr(e); m.close(); return; }
+    const inCart = (id) => st.rj.filter((c) => c.rid === id).reduce((s, c) => s + c.qty, 0);
+    const left = (r) => r.qty - (r.sold_qty || 0) - inCart(r.id);
+    const prodOf = (r) => st.products.find((p) => p.id === r.product_id);
+    const showList = () => {
+      const q = (m.$('[data-rq]').value || '').trim().toLowerCase();
+      const rows = list.filter((r) => left(r) > 0 && (!q || [r.product_name, r.barcode, r.reason, r.note].join(' ').toLowerCase().includes(q)));
+      m.$('[data-rlist]').innerHTML = rows.length ? `<div class="rj-list">${rows.slice(0, 200).map((r) => `<button class="rj-item" data-rid="${r.id}"><span class="grow"><b>${esc(r.product_name)}</b><span class="small muted">${esc(r.reason)}${r.note ? ' · ' + esc(r.note) : ''} · dicatat ${fmtDate(r.created)}</span></span>${r.discount > 0 ? `<span class="chip gold">−${rupiah(r.discount)}</span>` : ''}<span class="chip">${left(r)} pcs</span></button>`).join('')}</div>`
+        : `<div class="empty">${list.length ? 'Tidak ada barang reject yang cocok atau semuanya sudah terjual.' : 'Belum ada barang reject. Catat dulu di Laporan keuangan → Barang reject.'}</div>`;
+    };
+    const showForm = (r) => {
+      const p = prodOf(r), max = left(r), normal = p ? p.price : 0, def = Math.min(r.discount || 0, normal);
+      if (!p) { toast('Harga normal tidak diketahui', 'Barang asal reject ini sudah dihapus dari Produk & stok.', 'err'); return; }
+      m.$('[data-rlist]').innerHTML = `<div class="panel panel-b stack">
+        <div class="row"><button class="btn ghost sm" data-back>${icon('arrowleft')}Daftar</button><b class="grow">${esc(r.product_name)}</b><span class="chip amber">${esc(r.reason)}</span></div>
+        ${r.note ? `<p class="small muted" style="margin:0">${esc(r.note)}</p>` : ''}
+        <p class="small muted" style="margin:0">Sisa ${max} pcs${isAdmin ? ` · modal ${rupiah(r.cost)}` : ''} · ${def > 0 ? `potongan dari admin <b>${rupiah(def)}</b>/pcs` : 'potongan belum diatur admin'}</p>
+        <div class="grid2">${field('Jumlah', 'rqty', '1', { numeric: true })}${field('Potongan per pcs (Rp)', 'rdisc', def ? String(def) : '', { numeric: true, placeholder: 'Rp' })}</div>
+        <div class="rj-calc"><span>Harga normal <b>${rupiah(normal)}</b></span><span>Potongan <b class="danger" data-rd>−${rupiah(def)}</b></span><span>Harga jadi <b class="money" data-rp>${rupiah(normal - def)}</b></span></div>
+        <div data-pinbox>${isAdmin ? '' : field('PIN admin', 'rpin', '', { attrs: 'type="password" inputmode="numeric" autocomplete="off"', placeholder: 'Diketik oleh admin' })}</div>
+        <p class="small muted" style="margin:0" data-pinnote></p>
+        <p class="small muted" style="margin:0">Harga jadi ini final: tidak dipotong promo atau diskon member, tidak menambah poin, dan barang reject tidak bisa diretur.</p>
+        <div class="row"><span class="grow"></span><button class="btn gold" data-rok>Masukkan ke keranjang</button></div></div>`;
+      const dEl = m.$('[name=rdisc]');
+      const disc = () => Math.min(normal, Math.max(0, num(dEl.value)));
+      const needPin = () => !isAdmin && !(def > 0 && disc() === def);
+      const upd = () => {
+        m.$('[data-rd]').textContent = '−' + rupiah(disc()); m.$('[data-rp]').textContent = rupiah(normal - disc());
+        m.$('[data-pinbox]').classList.toggle('hidden', !needPin());
+        m.$('[data-pinnote]').textContent = isAdmin ? '' : needPin() ? (def > 0 ? 'Potongan diubah dari yang diatur admin, jadi perlu PIN admin.' : 'Potongan belum diatur admin, jadi perlu PIN admin.') : 'Memakai potongan dari admin, tidak perlu PIN.';
+      };
+      dEl.oninput = upd; upd();
+      m.$('[data-back]').onclick = showList;
+      setTimeout(() => dEl.focus(), 40);
+      m.$('[data-rok]').onclick = async () => {
+        const qty = Math.floor(num(m.$('[name=rqty]').value));
+        if (qty < 1 || qty > max) { toast('Jumlah tidak valid', `Sisa ${max} pcs`, 'err'); return; }
+        const pinEl = m.$('[name=rpin]');
+        if (needPin() && !pinEl.value.trim()) { toast('Minta admin mengetik PIN', '', 'err'); pinEl.focus(); return; }
+        const b = m.$('[data-rok]'); b.disabled = true;
+        try {
+          const qt = await api('reject_quote', { id: r.id, qty, discount: disc(), pin: needPin() ? pinEl.value.trim() : '' });
+          st.rj.push({ rid: r.id, name: r.product_name, reason: r.reason, qty: qt.qty, price: qt.price, normal: qt.normal, exp: qt.exp, token: qt.token, by: qt.by });
+          m.close(); refresh(); toast('Barang reject masuk keranjang', `${r.product_name} × ${qt.qty} · ${rupiah(qt.price)}/pcs`, 'ok');
+        } catch (e) { toastErr(e); b.disabled = false; if (pinEl && needPin()) { pinEl.value = ''; pinEl.focus(); } }
+      };
+    };
+    m.$('[data-rq]').oninput = debounce(showList, 150);
+    m.$('[data-rlist]').onclick = (e) => { const b = e.target.closest('[data-rid]'); if (b) showForm(list.find((x) => x.id === +b.dataset.rid)); };
+    showList();
+  }
+
   // ---------- pembayaran
   function requestPay() {
-    if (!st.cart.length && !st.retur) return;
+    if (!st.cart.length && !st.rj.length && !st.retur) return;
     const r = calc();
     const threshold = num(S.member_offer_threshold || 200000);
     if (!r.m && threshold > 0 && r.total > threshold && !st.offerShown) {
@@ -787,7 +854,7 @@ async function Kasir(page) {
       try {
         const trx = await api('checkout', {
           client_ref: ref,
-          items, discount: r.discount, fee: r.fee, fee_note: [...st.fees.map((f) => `${f.label} ${rupiah(f.amount)}`), st.shipping && st.shipping.fee ? `Ongkir ${st.shipping.courier} ${rupiah(st.shipping.fee)}` : ''].filter(Boolean).join('; '), shipping: st.shipping,
+          items, rejects: st.rj.map((c) => ({ id: c.rid, qty: c.qty, price: c.price, normal: c.normal, exp: c.exp, token: c.token })), discount: r.discount, fee: r.fee, fee_note: [...st.fees.map((f) => `${f.label} ${rupiah(f.amount)}`), st.shipping && st.shipping.fee ? `Ongkir ${st.shipping.courier} ${rupiah(st.shipping.fee)}` : ''].filter(Boolean).join('; '), shipping: st.shipping,
           payment: payNum, payment_method: method, member_id: st.memberId, channel,
           retur: st.retur ? { invoice: st.retur.invoice, items: st.retur.items.map((i) => ({ id: i.id, qty: i.qty })) } : null, reward_id: st.reward ? st.reward.id : null, voucher_applied: r.voucher > 0,
           sales_code: m.$('[name=sales]').value.trim(), promo_name: [...r.promoNames, st.reward ? 'Tukar poin: ' + st.reward.name : ''].filter(Boolean).join(', '),
@@ -810,7 +877,7 @@ async function Kasir(page) {
   }
   async function newSale() {
     ref = newRef(); pending = false;
-    Object.assign(st, { cart: [], memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null });
+    Object.assign(st, { cart: [], rj: [], memberId: null, vouchers: [], fees: [], shipping: null, reward: null, note: '', offerShown: false, retur: null });
     document.body.classList.remove('cart-open');
     try { const [p, mem] = await Promise.all([db.list('products'), db.list('members')]); st.products = p; st.members = mem; } catch (e) { /* biarkan */ }
     refresh(); if (window.innerWidth > 900) scan.focus();
@@ -821,6 +888,7 @@ async function Kasir(page) {
   scan.oninput = debounce(() => { st.q = scan.value; renderGrid(); }, 150);
   el('[data-camera]').onclick = async () => { const code = await scanWithCamera(); if (code) handleScan(code); };
   el('[data-addprod]').onclick = addProductModal;
+  el('[data-rjsell]').onclick = rejectSellModal;
   el('[data-lay]').onclick = (e) => App.layoutMenu(e.currentTarget);
   el('[data-prn]').onclick = printerMenu;
   el('[data-kmenu]').onclick = () => App.rail(true);
@@ -839,6 +907,7 @@ async function Kasir(page) {
     if (t.dataset.del) setQty(+t.dataset.del, 0);
     if (t.dataset.price) priceModal(+t.dataset.price);
     if (t.dataset.rmret !== undefined) { st.retur = null; renderCart(); }
+    if (t.dataset.rjdel !== undefined) { st.rj.splice(+t.dataset.rjdel, 1); refresh(); }
   };
   el('[data-items]').onchange = (e) => { if (e.target.dataset.qty) setQty(+e.target.dataset.qty, num(e.target.value)); };
   el('[data-extras]').onclick = (e) => {
@@ -855,7 +924,7 @@ async function Kasir(page) {
   el('[data-fee]').onclick = feeModal;
   el('[data-ship]').onclick = shipModal;
   el('[data-retur]').onclick = () => returModal();
-  el('[data-clear]').onclick = async () => { if ((st.cart.length || st.retur) && await confirmBox('Kosongkan keranjang?', 'Semua barang, promo, dan member di keranjang ini akan dihapus.', 'Kosongkan')) newSale(); };
+  el('[data-clear]').onclick = async () => { if ((st.cart.length || st.rj.length || st.retur) && await confirmBox('Kosongkan keranjang?', 'Semua barang, promo, dan member di keranjang ini akan dihapus.', 'Kosongkan')) newSale(); };
   el('[data-pay]').onclick = requestPay;
   el('[data-opencart]').onclick = () => document.body.classList.add('cart-open');
   el('[data-closecart]').onclick = () => document.body.classList.remove('cart-open');

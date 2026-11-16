@@ -1,6 +1,6 @@
 /* Service worker Sofeeya POS — membuat aplikasi bisa diinstal & cepat dibuka.
    Data (api/) selalu diambil langsung dari server, tidak pernah disimpan di cache. */
-const VERSION = 'sofeeya-v21';
+const VERSION = 'sofeeya-v24';
 const ASSETS = [
   './', 'index.html', 'absen.html', 'cek-stok.html', 'manifest.json',
   'assets/css/app.css?v=20', 'assets/js/core.js?v=20', 'assets/js/promo.js?v=20', 'assets/js/qrlib.js?v=20',

@@ -9,6 +9,12 @@ DirectoryIndex index.html
 #   RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 # </IfModule>
 
+# Halaman & data demo tidak dipakai di toko: tolak bila masih tersisa di server
+<FilesMatch "^(demo\.html|demo\.php|demo-leads\.php)$">
+  Require all denied
+</FilesMatch>
+RedirectMatch 404 ^/api/demo-data(/.*)?$
+
 # Jangan izinkan file database/teks diunduh langsung
 <FilesMatch "\.(sql|md|log|ini|bak)$">
   Require all denied
@@ -17,6 +23,9 @@ DirectoryIndex index.html
 <IfModule mod_headers.c>
   Header set X-Content-Type-Options "nosniff"
   Header set Referrer-Policy "same-origin"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Strict-Transport-Security "max-age=31536000"
+  Header always set X-Robots-Tag "noindex, nofollow"
   <FilesMatch "\.(js|css)$">
     Header set Cache-Control "public, max-age=604800"
   </FilesMatch>

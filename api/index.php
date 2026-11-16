@@ -58,7 +58,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 9) return;
+    if ($v >= 11) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -125,6 +125,13 @@ function migrate(PDO $pdo): void {
     // v9: promo lama "Potongan tetap" dipakai pemilik sebagai harga tetap (isi 99000 = dijual Rp99.000) → jadikan "Harga jadi"
     if ($v < 9) $pdo->exec("UPDATE promos SET type = 'price' WHERE type = 'fixed'");
     $setDefault('schema_version', '9', true);
+    // v10: barang reject bisa dijual di kasir (harga dari admin)
+    $addCol('rejects', 'sold_qty', 'INT NOT NULL DEFAULT 0');
+    $addCol('rejects', 'sold_amount', 'DECIMAL(14,2) NOT NULL DEFAULT 0');
+    $setDefault('schema_version', '10', true);
+    // v11: potongan harga (Rupiah per pcs) untuk barang reject, diatur admin
+    $addCol('rejects', 'discount', 'DECIMAL(14,2) NOT NULL DEFAULT 0');
+    $setDefault('schema_version', '11', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -203,7 +210,7 @@ $TABLES = [
         'search' => ['invoice', 'member_name', 'cashier', 'sales_name', 'channel', 'return_ref'], 'read' => 'auth', 'write' => 'admin', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
     'broadcasts' => ['fields' => ['title' => 's', 'message' => 's', 'audience' => 's', 'recipients' => 'j', 'total' => 'i', 'sent' => 'i', 'user_name' => 's'],
         'required' => ['message'], 'search' => ['title', 'message'], 'read' => 'auth', 'write' => 'auth', 'create' => 'auth', 'delete' => 'admin', 'order' => '-created'],
-    'rejects' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'category' => 's', 'qty' => 'i', 'cost' => 'n', 'reason' => 's', 'note' => 's', 'user_id' => 'i', 'user_name' => 's'],
+    'rejects' => ['fields' => ['product_id' => 'i', 'product_name' => 's', 'barcode' => 's', 'category' => 's', 'qty' => 'i', 'cost' => 'n', 'reason' => 's', 'note' => 's', 'user_id' => 'i', 'user_name' => 's', 'sold_qty' => 'i', 'sold_amount' => 'n', 'discount' => 'n'],
         'search' => ['product_name', 'barcode', 'reason', 'note', 'user_name'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => '-created'],
     'expenses' => ['fields' => ['expense_date' => 'd', 'category' => 's', 'amount' => 'n', 'note' => 's', 'user_name' => 's'],
         'required' => ['category', 'amount'], 'search' => ['category', 'note'], 'read' => 'admin', 'write' => 'admin', 'order' => '-expense_date'],
@@ -557,25 +564,68 @@ function reject_add(array $in): array {
         $before = (int)$p['stock']; $after = $before - $qty;
         q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]);
         $id = insert_row('rejects', ['product_id' => (int)$p['id'], 'product_name' => $p['name'], 'barcode' => (string)$p['barcode'], 'category' => (string)$p['category'], 'qty' => $qty,
-            'cost' => (float)$p['cost'], 'reason' => $reason, 'note' => trim(mb_substr((string)($in['note'] ?? ''), 0, 300)), 'user_id' => (int)$u['id'], 'user_name' => $u['name']]);
+            'cost' => (float)$p['cost'], 'discount' => $u['role'] === 'admin' ? max(0, round((float)($in['discount'] ?? 0))) : 0, 'reason' => $reason, 'note' => trim(mb_substr((string)($in['note'] ?? ''), 0, 300)), 'user_id' => (int)$u['id'], 'user_name' => $u['name']]);
         log_movement($p, 'out', $qty, $before, $after, 'Reject: ' . $reason);
         db()->commit();
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
     return get_row('rejects', $id);
+}
+// harga barang reject ditentukan admin: admin langsung, kasir dengan PIN admin → tanda tangan harga
+function reject_secret(): string {
+    $k = (string)setting('reject_secret', '');
+    if (strlen($k) < 32) { $k = bin2hex(random_bytes(32)); set_setting('reject_secret', $k); }
+    return $k;
+}
+function reject_sign(int $rid, int $qty, float $price, float $normal, int $uid, int $exp): string {
+    return hash_hmac('sha256', "$rid|$qty|" . round($price) . '|' . round($normal) . "|$uid|$exp", reject_secret());
+}
+// potongan bawaan barang reject (Rupiah per pcs) — hanya admin
+function reject_set_discount(array $in): array {
+    need_admin();
+    $r = one('SELECT * FROM rejects WHERE id = ?', [(int)($in['id'] ?? 0)]);
+    if (!$r) fail('Data reject tidak ditemukan.');
+    $d = round((float)($in['discount'] ?? 0)); if ($d < 0) fail('Potongan tidak valid.');
+    q('UPDATE rejects SET discount = ?, updated = ? WHERE id = ?', [$d, now(), $r['id']]);
+    return get_row('rejects', (int)$r['id']);
+}
+function reject_quote(array $in): array {
+    $u = need_auth();
+    $r = one('SELECT * FROM rejects WHERE id = ?', [(int)($in['id'] ?? 0)]);
+    if (!$r) fail('Data reject tidak ditemukan.');
+    $p = one('SELECT price FROM products WHERE id = ?', [(int)$r['product_id']]);
+    if (!$p) fail('Barang asal reject sudah tidak ada, jadi harga normalnya tidak diketahui.');
+    $normal = round((float)$p['price']); $def = round((float)($r['discount'] ?? 0));
+    $disc = round((float)($in['discount'] ?? $def)); if ($disc < 0) fail('Potongan tidak valid.');
+    $disc = min($disc, $normal);
+    // tanpa PIN hanya bila memakai potongan yang sudah diatur admin
+    $byAdminRule = $def > 0 && $disc == min($def, $normal);
+    if ($u['role'] !== 'admin' && !$byAdminRule && ((string)($in['pin'] ?? '') === '' || !hash_equals((string)setting('supervisor_pin', '1234'), (string)$in['pin']))) fail($def > 0 ? 'Potongan berbeda dari yang diatur admin, jadi perlu PIN admin.' : 'Potongan barang reject belum diatur admin. Minta admin mengetik PIN.', 403);
+    $qty = (int)($in['qty'] ?? 0); $left = (int)$r['qty'] - (int)($r['sold_qty'] ?? 0);
+    if ($qty < 1) fail('Jumlah minimal 1.');
+    if ($qty > $left) fail('Sisa barang reject ini ' . $left . ' pcs.');
+    $price = $normal - $disc;
+    $exp = time() + 12 * 3600;
+    return ['id' => (int)$r['id'], 'qty' => $qty, 'price' => $price, 'normal' => $normal, 'discount' => $disc, 'exp' => $exp,
+            'token' => reject_sign((int)$r['id'], $qty, $price, $normal, (int)$u['id'], $exp),
+            'by' => $u['role'] === 'admin' ? 'oleh ' . $u['name'] : ($byAdminRule ? 'diatur admin' : 'disetujui PIN admin')];
 }
 // hanya admin; stok dikembalikan
 function reject_delete(array $in): array {
     need_admin();
     $r = one('SELECT * FROM rejects WHERE id = ?', [(int)($in['id'] ?? 0)]);
     if (!$r) fail('Data reject tidak ditemukan.');
+    $sold = (int)($r['sold_qty'] ?? 0); $back = (int)$r['qty'] - $sold;
+    if ($back <= 0) fail('Semua barang reject ini sudah terjual, jadi tidak bisa dihapus. Batalkan dulu transaksinya.');
     db()->beginTransaction();
     try {
         $p = one('SELECT * FROM products WHERE id = ?', [(int)$r['product_id']]);
-        if ($p) { $before = (int)$p['stock']; $after = $before + (int)$r['qty']; q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]); log_movement($p, 'in', (int)$r['qty'], $before, $after, 'Batal reject: ' . $r['reason']); }
-        q('DELETE FROM rejects WHERE id = ?', [$r['id']]);
+        if ($p) { $before = (int)$p['stock']; $after = $before + $back; q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$after, now(), $p['id']]); log_movement($p, 'in', $back, $before, $after, 'Batal reject: ' . $r['reason']); }
+        // sebagian sudah terjual: catatan tetap ada untuk yang terjual, sisanya kembali ke stok
+        if ($sold > 0) q('UPDATE rejects SET qty = ?, updated = ? WHERE id = ?', [$sold, now(), $r['id']]);
+        else q('DELETE FROM rejects WHERE id = ?', [$r['id']]);
         db()->commit();
     } catch (Throwable $e) { if (db()->inTransaction()) db()->rollBack(); throw $e; }
-    return ['ok' => true];
+    return ['ok' => true, 'returned' => $back, 'kept' => $sold];
 }
 // member dengan belanja terbanyak per semester (admin & kasir)
 function report_members(array $in): array {
@@ -934,7 +984,7 @@ function checkout(array $in): array {
     if ($ref !== '' && ($dup = one('SELECT id FROM transactions WHERE client_ref = ?', [$ref]))) return tx_full((int)$dup['id']);
     $cart = (array)($in['items'] ?? []);
     $ret = !empty($in['retur']) && is_array($in['retur']) ? $in['retur'] : null;
-    if (!$cart && !$ret) fail('Keranjang kosong.');
+    if (!$cart && !$ret && empty($in['rejects'])) fail('Keranjang kosong.');
     db()->beginTransaction();
     try {
         $items = []; $subtotal = 0; $gross = 0; $commissionBase = 0; $count = 0; $shortages = [];
@@ -958,6 +1008,29 @@ function checkout(array $in): array {
             ];
         }
         if ($shortages) fail('Stok tidak cukup: ' . implode(', ', $shortages));
+        $normalSubtotal = $subtotal;
+
+        // barang reject: harga dari admin (ditandatangani), tanpa promo & tanpa poin, stok sudah keluar saat dicatat reject
+        $rjSold = []; $rjAmount = 0; $rjDisc = 0;
+        foreach ((array)($in['rejects'] ?? []) as $c) {
+            $rid = (int)($c['id'] ?? 0); $qty = (int)($c['qty'] ?? 0); $price = round((float)($c['price'] ?? 0)); $normal = round((float)($c['normal'] ?? $price)); $exp = (int)($c['exp'] ?? 0);
+            if ($normal < $price || $exp < time() || !hash_equals(reject_sign($rid, $qty, $price, $normal, (int)$u['id'], $exp), (string)($c['token'] ?? ''))) fail('Harga barang reject belum disetujui admin (atau sudah kedaluwarsa). Hapus dari keranjang lalu minta harga lagi.', 403);
+            $r = one('SELECT * FROM rejects WHERE id = ?', [$rid]);
+            if (!$r) fail('Data reject tidak ditemukan.');
+            $left = (int)$r['qty'] - (int)($r['sold_qty'] ?? 0) - ($rjSold[$rid] ?? 0);
+            if ($qty > $left) fail('Barang reject ' . $r['product_name'] . ' tinggal ' . max(0, $left) . ' pcs.');
+            $rjSold[$rid] = ($rjSold[$rid] ?? 0) + $qty;
+            $p = one('SELECT * FROM products WHERE id = ?', [(int)$r['product_id']]) ?: [];
+            $cost = (float)$r['cost'];
+            // harga normal masuk subtotal, potongannya masuk diskon (tampil di struk)
+            $subtotal += $normal * $qty; $rjAmount += $price * $qty; $rjDisc += ($normal - $price) * $qty; $gross += ($normal - $cost) * $qty; $count += $qty;
+            $items[] = [
+                'id' => (int)$r['product_id'], 'name' => $r['product_name'] . ' (reject)', 'barcode' => (string)$r['barcode'], 'category' => (string)$r['category'],
+                'model' => (string)($p['model'] ?? ''), 'size' => (string)($p['size'] ?? ''), 'color' => (string)($p['color'] ?? ''),
+                'qty' => $qty, 'price' => $normal, 'original_price' => $normal, 'cost' => $cost, 'commission' => 0, 'discount' => 0,
+                'itemDiscount' => ($normal - $price) * $qty, 'promoName' => $normal > $price ? 'Potongan' : '', 'reject_id' => $rid, 'reject_price' => $price, 'reject_reason' => (string)$r['reason'],
+            ];
+        }
 
         // retur / tukar barang dari transaksi sebelumnya
         $retItems = []; $retAmount = 0; $retProfit = 0; $orig = null;
@@ -968,7 +1041,8 @@ function checkout(array $in): array {
             $already = []; foreach ((array)$orig['returned'] as $r) $already[(int)$r['id']] = ($already[(int)$r['id']] ?? 0) + (int)$r['qty'];
             foreach ((array)($ret['items'] ?? []) as $r) {
                 $qty = max(0, (int)($r['qty'] ?? 0)); if (!$qty) continue;
-                $src = null; foreach ((array)$orig['items'] as $oi) if ((int)$oi['id'] === (int)($r['id'] ?? 0)) { $src = $oi; break; }
+                $src = null; $isRj = false; foreach ((array)$orig['items'] as $oi) if ((int)$oi['id'] === (int)($r['id'] ?? 0)) { if (!empty($oi['reject_id'])) { $isRj = true; continue; } $src = $oi; break; }
+                if (!$src && $isRj) fail('Barang reject tidak bisa diretur atau ditukar.');
                 if (!$src) fail('Barang retur tidak ada di transaksi ' . $orig['invoice'] . '.');
                 $left = (int)$src['qty'] - ($already[(int)$src['id']] ?? 0);
                 if ($qty > $left) fail('Jumlah retur ' . $src['name'] . ' melebihi sisa yang dibeli (' . $left . ').');
@@ -981,7 +1055,7 @@ function checkout(array $in): array {
             if (!$retItems) fail('Pilih barang yang diretur.');
         }
 
-        $discount = min($subtotal, max(0, (float)($in['discount'] ?? 0)));
+        $discount = min($normalSubtotal, max(0, (float)($in['discount'] ?? 0))) + $rjDisc;
         $fee = max(0, (float)($in['fee'] ?? 0));
         $total = $subtotal - $discount + $fee - $retAmount;
         if (!$ret) $total = max(0, $total);
@@ -1002,7 +1076,7 @@ function checkout(array $in): array {
             $member = one('SELECT * FROM members WHERE id = ?', [(int)$in['member_id']]);
             if (!$member) fail('Member tidak ditemukan.');
             $rate = max(1, (float)setting('points_per_amount', '1000'));
-            $earned = (int)floor(max(0, $total) / $rate);
+            $earned = (int)floor(max(0, $total - $rjAmount) / $rate);
             if (!empty($in['reward_id'])) {
                 $rw = one('SELECT * FROM point_rewards WHERE id = ? AND active = 1', [(int)$in['reward_id']]);
                 if (!$rw) fail('Reward poin tidak valid.');
@@ -1059,7 +1133,12 @@ function checkout(array $in): array {
                 'area_id' => mb_substr((string)($sh['area_id'] ?? ''), 0, 80), 'area_name' => mb_substr((string)($sh['area_name'] ?? ''), 0, 200), 'postal_code' => mb_substr((string)($sh['postal_code'] ?? ''), 0, 10),
                 'lat' => is_numeric($sh['lat'] ?? null) ? (float)$sh['lat'] : null, 'lng' => is_numeric($sh['lng'] ?? null) ? (float)$sh['lng'] : null, 'weight' => (int)($sh['weight'] ?? 0), 'cost' => (float)($sh['cost'] ?? 0)]);
         }
+        foreach ($rjSold as $rid => $qty) {
+            $amt = 0; foreach ($items as $it) if ((int)($it['reject_id'] ?? 0) === $rid) $amt += $it['reject_price'] * $it['qty'];
+            q('UPDATE rejects SET sold_qty = sold_qty + ?, sold_amount = sold_amount + ?, updated = ? WHERE id = ?', [$qty, $amt, now(), $rid]);
+        }
         foreach ($items as $it) {
+            if (!empty($it['reject_id'])) continue;
             $p = one('SELECT * FROM products WHERE id = ?', [$it['id']]);
             $before = (int)$p['stock']; $newStock = max(0, $before - $it['qty']);
             q('UPDATE products SET stock = ?, updated = ? WHERE id = ?', [$newStock, now(), $it['id']]);
@@ -1092,8 +1171,14 @@ function tx_delete(array $in): array {
                 log_movement($p, 'out', (int)$it['qty'], $before, $after, 'Batal retur ' . $tx['invoice'], $tx['invoice']);
             }
         }
+        // barang reject yang terjual kembali ke daftar reject (stoknya memang tidak dihitung)
+        foreach ($tx['items'] as $it) {
+            if (empty($it['reject_id']) || !($rj = one('SELECT sold_qty, sold_amount FROM rejects WHERE id = ?', [(int)$it['reject_id']]))) continue;
+            q('UPDATE rejects SET sold_qty = ?, sold_amount = ?, updated = ? WHERE id = ?', [max(0, (int)$rj['sold_qty'] - (int)$it['qty']), max(0, (float)$rj['sold_amount'] - (float)($it['reject_price'] ?? $it['price']) * (int)$it['qty']), now(), (int)$it['reject_id']]);
+        }
         if (!empty($in['restore_stock'])) {
             foreach ($tx['items'] as $it) {
+                if (!empty($it['reject_id'])) continue;
                 $p = one('SELECT * FROM products WHERE id = ?', [(int)$it['id']]);
                 if (!$p) continue;
                 $before = (int)$p['stock']; $after = $before + (int)$it['qty'];
@@ -1371,7 +1456,7 @@ try {
         case 'settings_all': {
             need_admin(); $out = []; foreach (all('SELECT `key`, value FROM settings') as $r) $out[$r['key']] = $r['value']; $out['_my_ip'] = client_ip();
             unset($out['biteship_api_key']);
-            unset($out['push_vapid_private']);
+            unset($out['push_vapid_private'], $out['reject_secret']);
             foreach (['wa_token'] as $sk) { $tk = (string)($out[$sk] ?? ''); $out[$sk] = $tk === '' ? '' : str_repeat('•', 8) . substr($tk, -4); }
             break;
         }
@@ -1408,6 +1493,8 @@ try {
         case 'checkout_status': $out = checkout_status($in); break;
         case 'reject_add': $out = reject_add($in); break;
         case 'reject_delete': $out = reject_delete($in); break;
+        case 'reject_quote': $out = reject_quote($in); break;
+        case 'reject_set_discount': $out = reject_set_discount($in); break;
         case 'report_members': $out = report_members($in); break;
         case 'report_commission': $out = report_commission($in); break;
         case 'tx_delete': $out = tx_delete($in); break;

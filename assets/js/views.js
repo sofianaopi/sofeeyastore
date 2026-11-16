@@ -349,7 +349,7 @@ V.laporan = async (page) => {
       const a = { kotor: 0, diskon: 0, retur: 0, hpp: 0, komisi: 0, fee: 0, reject: 0, biaya: 0, n: 0, cats: {} };
       tx.forEach((t) => { a.n++; a.kotor += t.subtotal; a.diskon += t.discount; a.retur += t.return_amount || 0; a.komisi += t.commission; a.fee += t.fee || 0;
         (t.items || []).forEach((i) => { a.hpp += (i.cost || 0) * i.qty; }); (t.return_items || []).forEach((i) => { a.hpp -= (i.cost || 0) * i.qty; }); });
-      rj.forEach((r) => { a.reject += r.cost * r.qty; });
+      rj.forEach((r) => { a.reject += r.cost * (r.qty - (r.sold_qty || 0)); }); // yang terjual lagi masuk HPP penjualan
       ex.forEach((e) => { a.biaya += e.amount; a.cats[e.category] = (a.cats[e.category] || 0) + e.amount; });
       a.bersih = a.kotor - a.diskon - a.retur; a.lk = a.bersih - a.hpp; a.beban = a.komisi + a.reject + a.biaya; a.lb = a.lk - a.beban;
       return a;
@@ -562,19 +562,36 @@ V.laporan = async (page) => {
     const load = async (p) => { P = p; loading(); try { cache = await db.list('rejects', { from: p.from, to: p.to, limit: 20000 }); draw(); } catch (e) { failed(e); } };
     ctlBox(['day', 'month', 'year'], 'month', load);
     function draw() {
-      const pcs = cache.reduce((s, r) => s + r.qty, 0), val = cache.reduce((s, r) => s + r.qty * r.cost, 0);
+      const pcs = cache.reduce((s, r) => s + r.qty, 0), val = cache.reduce((s, r) => s + (r.qty - (r.sold_qty || 0)) * r.cost, 0);
+      const soldPcs = cache.reduce((s, r) => s + (r.sold_qty || 0), 0), soldAmt = cache.reduce((s, r) => s + (r.sold_amount || 0), 0);
       const why = {}; cache.forEach((r) => { why[r.reason] = (why[r.reason] || 0) + r.qty; });
-      body.innerHTML = `<div class="stats">${stat('Barang reject', fmtNum(pcs) + ' pcs', P.label, 'hero')}${stat('Dicatat', fmtNum(cache.length) + '×')}${admin ? stat('Kerugian (modal)', `<span class="danger">${rupiah(val)}</span>`, 'masuk ke laporan laba rugi') : ''}</div>
+      body.innerHTML = `<div class="stats">${stat('Barang reject', fmtNum(pcs) + ' pcs', P.label, 'hero')}${stat('Dicatat', fmtNum(cache.length) + '×')}${stat('Terjual lagi', fmtNum(soldPcs) + ' pcs', soldPcs ? rupiah(soldAmt) + ' lewat Kasir → Reject' : 'jual lewat Kasir → Reject')}${admin ? stat('Kerugian (modal)', `<span class="danger">${rupiah(val)}</span>`, 'masuk ke laporan laba rugi') : ''}</div>
         <div class="toolbar"><button class="btn primary" data-add>${icon('plus')}Tambah barang reject</button><span class="grow">${Object.entries(why).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<span class="chip">${esc(k)} · ${v}</span>`).join(' ')}</span><button class="btn" data-xls>${icon('download')}Excel</button></div>
-        ${!admin ? '<p class="small muted" style="margin:0 0 10px">Data yang sudah ditambahkan hanya bisa dihapus oleh admin. Periksa kembali sebelum menyimpan.</p>' : ''}
-        ${table([{ label: 'Waktu', get: (r) => fmtDT(r.created) }, { label: 'Barang', html: (r) => `<b>${esc(r.product_name)}</b><div class="small muted">${esc(r.barcode || '')}</div>` }, { label: 'Jumlah', num: true, html: (r) => `<b>${r.qty}</b>` }, { label: 'Alasan', html: (r) => `<span class="chip amber">${esc(r.reason)}</span>${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}` }, ...(admin ? [{ label: 'Kerugian', num: true, get: (r) => rupiah(r.cost * r.qty) }] : []), { label: 'Dicatat oleh', key: 'user_name' }, ...(admin ? [{ label: '', cls: 'right', html: (r) => `<button class="btn sm icon danger" data-del="${r.id}" aria-label="Hapus" title="Hapus & kembalikan stok">${icon('trash')}</button>` }] : [])], cache, { empty: 'Belum ada barang reject pada periode ini.', emptyIcon: 'box', maxH: '56vh' })}`;
+        ${!admin ? '<p class="small muted" style="margin:0 0 10px">Barang reject hanya bisa dihapus oleh admin. Periksa kembali sebelum menyimpan.</p>' : ''}
+        ${table([{ label: 'Waktu', get: (r) => fmtDT(r.created) }, { label: 'Barang', html: (r) => `<b>${esc(r.product_name)}</b><div class="small muted">${esc(r.barcode || '')}</div>` }, { label: 'Jumlah', num: true, html: (r) => `<b>${r.qty}</b>` },  { label: 'Potongan / pcs', num: true, html: (r) => (admin && r.sold_qty < r.qty ? `<button class="btn sm" data-disc="${r.id}" title="Atur potongan harga jual">${r.discount > 0 ? rupiah(r.discount) : 'Atur'}</button>` : r.discount > 0 ? rupiah(r.discount) : '–') }, { label: 'Terjual', num: true, html: (r) => (r.sold_qty ? `<b class="money">${r.sold_qty}</b><div class="small muted">${rupiah(r.sold_amount)}</div>` : '–') }, { label: 'Alasan', html: (r) => `<span class="chip amber">${esc(r.reason)}</span>${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}` }, ...(admin ? [{ label: 'Kerugian', num: true, get: (r) => rupiah(r.cost * (r.qty - (r.sold_qty || 0))) }] : []), { label: 'Dicatat oleh', key: 'user_name' }, ...(admin ? [{ label: '', cls: 'right', html: (r) => (r.sold_qty >= r.qty ? '<span class="small muted">terjual</span>' : `<button class="btn sm danger" data-del="${r.id}" title="Batalkan catatan reject & kembalikan barang ke stok">${icon('trash')}Hapus</button>`) }] : [])], cache, { empty: 'Belum ada barang reject pada periode ini.', emptyIcon: 'box', maxH: '56vh' })}`;
       $('[data-add]', body).onclick = rejectModal;
-      $('[data-xls]', body).onclick = () => downloadXLS(`reject_${P.from}_${P.to}.xls`, cache, [{ label: 'Waktu', key: 'created' }, { label: 'Barang', key: 'product_name' }, { label: 'Barcode', key: 'barcode' }, { label: 'Kategori', key: 'category' }, { label: 'Jumlah', key: 'qty' }, { label: 'Alasan', key: 'reason' }, { label: 'Catatan', key: 'note' }, ...(admin ? [{ label: 'Harga modal', key: 'cost' }, { label: 'Kerugian', get: (r) => r.cost * r.qty }] : []), { label: 'Dicatat oleh', key: 'user_name' }], 'Barang reject ' + P.label);
+      $('[data-xls]', body).onclick = () => downloadXLS(`reject_${P.from}_${P.to}.xls`, cache, [{ label: 'Waktu', key: 'created' }, { label: 'Barang', key: 'product_name' }, { label: 'Barcode', key: 'barcode' }, { label: 'Kategori', key: 'category' }, { label: 'Jumlah', key: 'qty' }, { label: 'Potongan per pcs', get: (r) => r.discount || 0 }, { label: 'Terjual', get: (r) => r.sold_qty || 0 }, { label: 'Hasil jual', get: (r) => r.sold_amount || 0 }, { label: 'Alasan', key: 'reason' }, { label: 'Catatan', key: 'note' }, ...(admin ? [{ label: 'Harga modal', key: 'cost' }, { label: 'Kerugian', get: (r) => r.cost * (r.qty - (r.sold_qty || 0)) }] : []), { label: 'Dicatat oleh', key: 'user_name' }], 'Barang reject ' + P.label);
       body.onclick = async (e) => {
+        const dc = e.target.closest('[data-disc]');
+        if (dc) { discModal(cache.find((x) => x.id === +dc.dataset.disc)); return; }
         const d = e.target.closest('[data-del]'); if (!d) return;
         const r = cache.find((x) => x.id === +d.dataset.del);
-        if (await confirmBox('Hapus data reject?', `${r.product_name} ×${r.qty} — stok akan dikembalikan.`, 'Hapus')) { try { await api('reject_delete', { id: r.id }); toast('Data reject dihapus', 'Stok dikembalikan.', 'ok'); load(P); } catch (ex) { toastErr(ex); } }
+        const sold = r.sold_qty || 0, back = r.qty - sold;
+        if (await confirmBox('Hapus barang reject?', sold ? `${r.product_name}: ${back} pcs yang belum terjual kembali ke stok. ${sold} pcs yang sudah terjual tetap tercatat.` : `${r.product_name} ×${r.qty} — catatan reject dihapus dan barang kembali ke stok.`, 'Hapus')) { try { await api('reject_delete', { id: r.id }); toast('Barang reject dihapus', `${back} pcs kembali ke stok.`, 'ok'); load(P); } catch (ex) { toastErr(ex); } }
       };
+    }
+    // potongan harga jual barang reject (Rupiah per pcs) — kasir bisa langsung menjual tanpa PIN
+    async function discModal(r) {
+      let normal = 0; try { const p = await api('get', { table: 'products', id: r.product_id }); normal = p.price; } catch (e) { /* barang sudah dihapus */ }
+      const m = modal({ title: 'Potongan barang reject', body: `<div class="stack"><div><b>${esc(r.product_name)}</b><div class="small muted">${esc(r.reason)} · sisa ${r.qty - (r.sold_qty || 0)} pcs${normal ? ' · harga normal ' + rupiah(normal) : ''}</div></div>
+        ${field('Potongan per pcs (Rp)', 'disc', r.discount ? String(r.discount) : '', { numeric: true, placeholder: 'mis. 50000' })}
+        <p class="small muted" style="margin:0" data-res></p>
+        <p class="small muted" style="margin:0">Kasir bisa langsung menjual dengan potongan ini tanpa PIN. Potongan lain tetap perlu PIN admin. Isi 0 bila setiap penjualan harus memakai PIN.</p></div>`,
+        foot: '<button class="btn" data-x>Batal</button><button class="btn primary" data-ok>Simpan</button>' });
+      const inp = m.$('[name=disc]'); const upd = () => { const d = num(inp.value); m.$('[data-res]').innerHTML = normal ? `Harga jadi: <b class="money">${rupiah(Math.max(0, normal - d))}</b>` : ''; }; inp.oninput = upd; upd();
+      m.$('[data-x]').onclick = () => m.close();
+      m.$('[data-ok]').onclick = async () => { try { await api('reject_set_discount', { id: r.id, discount: num(inp.value) }); toast('Potongan disimpan', `${r.product_name} · ${rupiah(num(inp.value))}/pcs`, 'ok'); m.close(); load(P); } catch (ex) { toastErr(ex); } };
+      setTimeout(() => inp.focus(), 40);
     }
     async function rejectModal() {
       let products = []; try { products = (await db.list('products')).filter((p) => p.stock > 0); } catch (e) { toastErr(e); return; }
@@ -583,7 +600,8 @@ V.laporan = async (page) => {
         <div class="search">${icon('search')}<input class="input" data-s placeholder="Cari nama, warna, ukuran, atau scan barcode…" autocomplete="off"></div><div class="pick rj-list" data-res></div>
         <div data-sel></div>
         <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Alasan</div><div class="quick" data-why>${REASONS.map((r) => `<button type="button" data-w="${esc(r)}">${esc(r)}</button>`).join('')}</div></div>
-        <div class="grid2">${field('Jumlah (pcs)', 'qty', '1', { numeric: true })}${field('Catatan', 'note', '', { placeholder: 'mis. noda di lengan kanan' })}</div></div>`,
+        <div class="grid2">${field('Jumlah (pcs)', 'qty', '1', { numeric: true })}${field('Catatan', 'note', '', { placeholder: 'mis. noda di lengan kanan' })}</div>
+        ${admin ? field('Potongan harga jual per pcs (Rp, opsional)', 'disc', '', { numeric: true, placeholder: 'mis. 50000', hint: 'Kasir bisa menjual barang ini dengan potongan tersebut tanpa PIN admin.' }) : ''}</div>`,
         foot: '<button class="btn" data-x>Batal</button><button class="btn primary" data-ok>Simpan</button>' });
       const res = (q) => { q = q.toLowerCase().trim(); const l = products.filter((p) => !q || [p.name, p.barcode, p.model, p.color, p.size].join(' ').toLowerCase().includes(q)).slice(0, 30); m.$('[data-res]').innerHTML = l.map((p) => `<button data-p="${p.id}" class="${pick && pick.id === p.id ? 'on' : ''}"><div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(p.barcode || '')}</div></div><span class="chip">stok ${p.stock}</span></button>`).join('') || emptyState('Barang tidak ditemukan.'); };
       res('');
@@ -597,7 +615,7 @@ V.laporan = async (page) => {
         if (!reason) { toast('Pilih alasan reject', '', 'err'); return; }
         if (!(qty > 0) || qty > pick.stock) { toast('Jumlah tidak valid', `Stok tersedia ${pick.stock}`, 'err'); return; }
         if (!admin && !(await confirmBox('Simpan barang reject?', `${pick.name} ×${qty} (${reason}). Setelah disimpan hanya admin yang bisa menghapus.`, 'Simpan', false))) return;
-        try { await api('reject_add', { product_id: pick.id, qty, reason, note: m.$('[name=note]').value }); toast('Barang reject dicatat', `${pick.name} ×${qty} · stok dikurangi`, 'ok'); m.close(); load(P); } catch (ex) { toastErr(ex); }
+        try { await api('reject_add', { product_id: pick.id, qty, reason, note: m.$('[name=note]').value, discount: admin ? num(m.$('[name=disc]').value) : 0 }); toast('Barang reject dicatat', `${pick.name} ×${qty} · stok dikurangi`, 'ok'); m.close(); load(P); } catch (ex) { toastErr(ex); }
       };
       setTimeout(() => m.$('[data-s]').focus(), 50);
     }
