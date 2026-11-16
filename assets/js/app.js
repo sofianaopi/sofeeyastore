@@ -10,7 +10,7 @@ const App = {
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', can: (u) => u.role === 'admin' },
     { id: 'laporan', label: 'Laporan keuangan', icon: 'laporan', can: () => true },
     { id: 'pengiriman', label: 'Pengiriman', icon: 'truck', can: () => true },
-    { id: 'qris', label: 'QRIS', icon: 'qr', can: () => true },
+    { id: 'qris', label: 'QRIS', icon: 'qr', can: (u) => u.role === 'admin' },
     { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },
     { id: 'promo', label: 'Promo', icon: 'promo', can: (u) => u.promo_access },
     { id: 'member', label: 'Member', icon: 'member', can: () => true },

@@ -44,6 +44,15 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Perbaikan hasil audit (versi 21)
+
+| Perubahan | Keterangan |
+|---|---|
+| Tidak diindeks Google | `robots.txt` baru + tanda *noindex* di semua halaman, jadi aplikasi internal tidak muncul di hasil pencarian |
+| Pengaman server | `.htaccess` menambah HSTS (selalu HTTPS) dan X-Frame-Options (aplikasi tidak bisa ditampilkan di dalam situs lain) |
+| Halaman demo ditutup | `demo.html`, `api/demo.php`, `api/demo-leads.php` dan folder `api/demo-data` ditolak server walaupun masih tersisa. Tetap hapus file-file itu dari Hostinger dan GitHub |
+| Menu QRIS | Hanya admin. Kasir tetap bisa menerima QRIS saat bayar di layar Kasir |
+
 ## Aturan memakai promo (versi 20)
 
 - **Hanya 1 promo aktif hari itu:** promo terpotong otomatis di kasir (promo berkode tetap lewat kode).
@@ -249,7 +258,7 @@ Cara lain: phpMyAdmin → **Export**.
 2. Klik **Foto / gambar QRIS** dan pilih foto QRIS statis yang ada di stand kasir (dari bank, GoPay/DANA/ShopeePay Merchant), atau **Scan pakai kamera**.
 3. Pastikan status **Valid** dan nama merchant benar → **Coba buat QR Rp1.000** → scan dengan HP Anda untuk memastikan nominal muncul → **Simpan QRIS**.
 4. Di kasir pilih metode **QRIS** saat membayar: kode QR dengan total belanja langsung tampil. Pembeli scan, nominal sudah terisi.
-5. Menu **QRIS** di samping dipakai untuk menerima pembayaran cepat dengan nominal bebas (tidak tercatat sebagai penjualan).
+5. Menu **QRIS** di samping (khusus admin sejak versi 21) dipakai untuk menerima pembayaran cepat dengan nominal bebas (tidak tercatat sebagai penjualan). Kasir tetap memakai QRIS lewat layar Kasir.
 
 Catatan: aplikasi tidak bisa mengetahui otomatis apakah dana sudah masuk. Kasir tetap mengecek notifikasi di aplikasi merchant QRIS sebelum menekan **Sudah dibayar**. Konfirmasi otomatis membutuhkan payment gateway berbayar (Midtrans / Xendit).
 
