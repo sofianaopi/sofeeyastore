@@ -585,7 +585,10 @@ function reject_set_discount(array $in): array {
     $r = one('SELECT * FROM rejects WHERE id = ?', [(int)($in['id'] ?? 0)]);
     if (!$r) fail('Data reject tidak ditemukan.');
     $d = round((float)($in['discount'] ?? 0)); if ($d < 0) fail('Potongan tidak valid.');
-    q('UPDATE rejects SET discount = ?, updated = ? WHERE id = ?', [$d, now(), $r['id']]);
+    $reason = isset($in['reason']) ? trim(mb_substr((string)$in['reason'], 0, 100)) : (string)$r['reason'];
+    if ($reason === '') fail('Pilih alasan reject.');
+    $note = isset($in['note']) ? trim(mb_substr((string)$in['note'], 0, 300)) : (string)$r['note'];
+    q('UPDATE rejects SET discount = ?, reason = ?, note = ?, updated = ? WHERE id = ?', [$d, $reason, $note, now(), $r['id']]);
     return get_row('rejects', (int)$r['id']);
 }
 function reject_quote(array $in): array {

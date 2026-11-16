@@ -44,11 +44,11 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
-## Jual barang reject di kasir (versi 22–24)
+## Jual barang reject di kasir (versi 22–25)
 
 Barang yang sudah dicatat di **Laporan keuangan → Barang reject** bisa dijual lagi dengan **potongan Rupiah** dari harga normal.
 
-**Admin mengatur potongan bawaan** (opsional): Laporan keuangan → Barang reject → kolom **Potongan / pcs** → isi mis. 50000 → Simpan. Bisa juga diisi saat menambah barang reject.
+**Admin mengatur potongan bawaan** (opsional): Laporan keuangan → Barang reject → tombol **Edit** di baris barangnya → isi potongan per pcs mis. 50000 (harga jadi langsung tampil) → Simpan. Di menu Edit admin juga bisa membetulkan alasan dan catatan. Tombol Edit hanya muncul untuk admin. Potongan bisa juga diisi saat menambah barang reject.
 
 **Kasir menjual:**
 1. Di layar Kasir tekan **Reject** (ikon segi enam di samping tombol Barang), pilih barangnya.
