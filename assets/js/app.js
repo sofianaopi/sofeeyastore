@@ -13,6 +13,7 @@ const App = {
     { id: 'qris', label: 'QRIS', icon: 'qr', can: (u) => u.role === 'admin' },
     { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },
     { id: 'promo', label: 'Promo', icon: 'promo', can: (u) => u.promo_access },
+    { id: 'website', label: 'Katalog website', icon: 'link', can: () => true },
     { id: 'member', label: 'Member', icon: 'member', can: () => true },
     { id: 'sales', label: 'Sales & komisi', icon: 'sales', can: (u) => u.role === 'admin' },
     { sep: true },
@@ -97,6 +98,7 @@ const App = {
           <div class="login-links">
             <a href="absen.html">${icon('finger')}<div>Absen pegawai<span>Absen datang & pulang dari WiFi toko</span></div></a>
             <a href="cek-stok.html">${icon('clipboard')}<div>Cek stok barang<span>Untuk petugas yang diberi akses</span></div></a>
+            <a href="katalog/">${icon('produk')}<div>Katalog &amp; harga<span>Untuk pembeli: lihat koleksi dan pesan via WhatsApp</span></div></a>
           </div>
         </form>
       </div>

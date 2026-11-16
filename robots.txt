@@ -1,3 +1,9 @@
-# Aplikasi kasir internal Sofeeya Store - jangan diindeks mesin pencari
+# Sofeeya Store: website katalog boleh diindeks, aplikasi kasir tidak
 User-agent: *
+Allow: /katalog/
+Allow: /uploads/katalog/
+Allow: /assets/fonts/
+Allow: /assets/img/
 Disallow: /
+
+Sitemap: https://sofeeyastore.id/katalog/sitemap.xml

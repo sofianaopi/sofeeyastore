@@ -1545,3 +1545,147 @@ V.akun = async (page) => {
   $('[data-sp]', page).onclick = async () => { try { App.user = await api('update_profile', formValues($('[data-p]', page))); toast('Profil disimpan', '', 'ok'); } catch (e) { toastErr(e); } };
   $('[data-sw]', page).onclick = async () => { const v = formValues($('[data-w]', page)); if (v.new !== v.new2) { toast('Kata sandi baru tidak sama', '', 'err'); return; } try { await api('change_password', v); toast('Kata sandi diganti', '', 'ok'); $$('[data-w] input', page).forEach((i) => (i.value = '')); } catch (e) { toastErr(e); } };
 };
+
+// ================================================================ KATALOG WEBSITE (sofeeyastore.id/katalog)
+// pegawai & admin: foto produk; admin: barang yang tampil, nama, deskripsi, info toko
+V.website = async (page) => {
+  const admin = App.isAdmin();
+  const webUrl = new URL('katalog/', location.href.split('#')[0]).href;
+  page.innerHTML = head('Katalog website', admin ? 'Pilih barang yang tampil di website, unggah foto, dan atur info toko. Harga, promo, dan stok mengikuti kasir secara otomatis.' : 'Unggah foto barang untuk website toko. Harga, promo, dan stok mengikuti kasir secara otomatis.',
+    `<a class="btn" href="${esc(webUrl)}" target="_blank" rel="noopener">${icon('link')}Buka website</a>`) +
+    `<div style="margin-bottom:14px">${tabs([['produk', 'Barang di website'], ...(admin ? [['info', 'Info toko']] : [])], 'produk')}</div><div data-body></div>`;
+  const body = $('[data-body]', page);
+  bindTabs(page, (t) => (t === 'info' ? drawInfo() : drawProducts()));
+  const keyOf = (p) => (p.model && p.model.trim() ? p.model.trim() : 'id:' + p.id);
+  let filter = 'all', q = '';
+
+  // harga di website = harga kasir − harga khusus − promo otomatis terbaik (sama dengan halaman website)
+  const webPrice = (p, promos) => {
+    const eff = p.price - (p.discount || 0);
+    let best = 0;
+    promos.filter((x) => x.type !== 'package' && x.type !== 'bogo' && !(x.min_purchase > 0)).forEach((x) => { best = Math.max(best, Promo.unitOff(p, [x])); });
+    return Math.max(0, eff - best);
+  };
+
+  async function drawProducts() {
+    body.innerHTML = '<div class="empty">Memuat…</div>';
+    let products = [], rows = [], promos = [];
+    try { [products, rows, promos] = await Promise.all([db.list('products'), db.list('web_catalog', { limit: 5000 }), db.list('promos', { where: { active: 1 } })]); } catch (e) { toastErr(e); return; }
+    promos = promos.filter(Promo.activeToday).filter(Promo.isAuto);
+    const byKey = new Map();
+    products.forEach((p) => { const k = keyOf(p); if (!byKey.has(k)) byKey.set(k, { key: k, name: p.model || p.name, category: p.category, items: [] }); byKey.get(k).items.push(p); });
+    const rowOf = new Map(rows.map((r) => [r.model_key, r]));
+    const groups = [...byKey.values()].map((g) => {
+      const r = rowOf.get(g.key) || null, avail = g.items.filter((p) => p.stock > 0);
+      const prices = avail.map((p) => webPrice(p, promos));
+      return { ...g, row: r, visible: !!(r && r.visible), photos: r ? r.photos || [] : [], title: r && r.title ? r.title : g.name, stock: avail.reduce((s, p) => s + p.stock, 0), lo: prices.length ? Math.min(...prices) : 0, hi: prices.length ? Math.max(...prices) : 0, normal: avail.length ? Math.min(...avail.map((p) => p.price)) : 0 };
+    }).sort((a, b) => (b.visible - a.visible) || (b.stock > 0) - (a.stock > 0) || a.title.localeCompare(b.title));
+    const shown = groups.filter((g) => g.visible && g.stock > 0).length, noPic = groups.filter((g) => g.visible && !g.photos.length).length;
+    const draw = () => {
+      const lq = q.toLowerCase();
+      const list = groups.filter((g) => (filter === 'all' || (filter === 'on' && g.visible) || (filter === 'off' && !g.visible) || (filter === 'nopic' && !g.photos.length)) && (!lq || [g.title, g.name, g.category].join(' ').toLowerCase().includes(lq)));
+      $('[data-list]', body).innerHTML = list.length ? list.slice(0, 300).map((g) => `<div class="wc ${g.stock > 0 ? '' : 'dim'}">
+        <div class="wc-pic">${g.photos[0] ? `<img src="${esc(g.photos[0])}" alt="" loading="lazy">` : `<span>${icon('camera')}</span>`}${g.photos.length ? `<i>${g.photos.length}</i>` : ''}</div>
+        <div class="wc-b"><b>${esc(g.title)}</b><div class="small muted">${esc(g.category || 'Tanpa kategori')} · ${g.items.length} varian · ${g.stock > 0 ? `stok ${fmtNum(g.stock)}` : '<span class="danger">stok habis, tidak tampil</span>'}</div>
+          <div class="wc-price">${g.stock > 0 ? (g.normal > g.lo ? `<s>${rupiah(g.normal)}</s> ` : '') + `<b>${g.lo === g.hi ? rupiah(g.lo) : rupiah(g.lo) + ' – ' + rupiah(g.hi)}</b>` : ''}</div></div>
+        <div class="wc-a">
+          ${admin ? `<label class="wc-vis" title="Tampil di website"><span class="switch"><input type="checkbox" data-vis="${esc(g.key)}" ${g.visible ? 'checked' : ''}><span></span></span><em>${g.visible ? 'Tampil' : 'Tidak tampil'}</em></label>` : `<span class="chip ${g.visible ? 'green' : ''}">${g.visible ? 'Tampil' : 'Tidak tampil'}</span>`}
+          <button class="btn sm" data-pics="${esc(g.key)}">${icon('camera')}Foto</button>
+          ${admin ? `<button class="btn sm" data-edit="${esc(g.key)}">${icon('edit')}Edit</button>${g.visible && g.row ? `<a class="btn sm ghost" href="${esc(webUrl + 'p/' + g.row.slug)}" target="_blank" rel="noopener" title="Lihat di website">${icon('link')}</a>` : ''}` : ''}
+        </div></div>`).join('') : emptyState('Tidak ada barang yang cocok.');
+    };
+    body.innerHTML = `<div class="stats">${stat('Tampil di website', fmtNum(shown) + ' barang', 'yang sedang ada stok', 'hero')}${stat('Belum ada foto', fmtNum(noPic), 'dari barang yang tampil')}${stat('Promo otomatis', fmtNum(promos.length), 'ikut tampil di website')}</div>
+      <div class="toolbar"><div class="search grow">${icon('search')}<input class="input" data-q placeholder="Cari barang…" value="${esc(q)}"></div>
+      <div class="seg" data-f>${[['all', 'Semua'], ['on', 'Tampil'], ['off', 'Tidak tampil'], ['nopic', 'Belum ada foto']].map(([k, l]) => `<button data-fv="${k}" class="${k === filter ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+      ${admin ? '' : '<p class="small muted" style="margin:0 0 10px">Admin yang menentukan barang mana yang tampil di website. Foto bisa diambil langsung dari kamera HP.</p>'}
+      <div class="wc-list" data-list></div>`;
+    draw();
+    $('[data-q]', body).oninput = debounce((e) => { q = e.target.value; draw(); }, 150);
+    $('[data-f]', body).onclick = (e) => { const b = e.target.closest('[data-fv]'); if (!b) return; filter = b.dataset.fv; $$('[data-fv]', body).forEach((x) => x.classList.toggle('on', x === b)); draw(); };
+    const find = (k) => groups.find((g) => g.key === k);
+    $('[data-list]', body).onchange = async (e) => {
+      const c = e.target.closest('[data-vis]'); if (!c) return;
+      const g = find(c.dataset.vis);
+      try { g.row = await api('catalog_save', { model_key: g.key, visible: c.checked }); g.visible = c.checked; toast(c.checked ? 'Tampil di website' : 'Disembunyikan dari website', g.title, 'ok'); if (c.checked && !g.photos.length) toast('Tambahkan foto', 'Barang dengan foto lebih menarik dan lebih mudah ditemukan di Google.'); draw(); } catch (ex) { c.checked = !c.checked; toastErr(ex); }
+    };
+    $('[data-list]', body).onclick = (e) => {
+      const p = e.target.closest('[data-pics]'), ed = e.target.closest('[data-edit]');
+      if (p) photoModal(find(p.dataset.pics), draw);
+      if (ed) editModal(find(ed.dataset.edit), draw);
+    };
+  }
+
+  function photoModal(g, redraw) {
+    const m = modal({ title: 'Foto · ' + g.title, size: 'wide', body: `<div class="stack">
+      <p class="small muted" style="margin:0">Foto pertama menjadi foto utama di website. Maks. 8 foto. Tips: foto di tempat terang, satu warna per foto, dan tampak depan dulu.</p>
+      <div class="wp-grid" data-g></div>
+      <label class="btn primary" style="align-self:flex-start">${icon('camera')}Tambah foto<input type="file" accept="image/*" multiple data-file hidden></label>
+      <p class="small muted" data-prog style="margin:0"></p></div>`, foot: '<button class="btn primary" data-x>Selesai</button>' });
+    const draw = () => {
+      m.$('[data-g]').innerHTML = g.photos.length ? g.photos.map((f, i) => `<div class="wp"><img src="${esc(f)}" alt="Foto ${i + 1}">${i === 0 ? '<span class="chip gold">Utama</span>' : ''}<div class="wp-a">
+        <button class="btn sm icon" data-mv="${i}" data-d="-1" ${i === 0 ? 'disabled' : ''} aria-label="Geser ke kiri" title="Jadikan lebih awal">${icon('arrowleft')}</button>
+        <button class="btn sm icon danger" data-rm="${i}" aria-label="Hapus foto">${icon('trash')}</button></div></div>`).join('') : `<div class="empty" style="grid-column:1/-1">${icon('camera')}Belum ada foto.</div>`;
+    };
+    const save = (row) => { g.row = row; g.photos = row.photos || []; draw(); redraw(); };
+    draw();
+    m.$('[data-g]').onclick = async (e) => {
+      const mv = e.target.closest('[data-mv]'), rm = e.target.closest('[data-rm]');
+      try {
+        if (mv) { const i = +mv.dataset.mv, a = [...g.photos]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; save(await api('catalog_photo', { model_key: g.key, op: 'order', photos: a })); }
+        if (rm && await confirmBox('Hapus foto ini?', 'Foto dihapus dari website.', 'Hapus')) save(await api('catalog_photo', { model_key: g.key, op: 'remove', photo: g.photos[+rm.dataset.rm] }));
+      } catch (ex) { toastErr(ex); }
+    };
+    m.$('[data-file]').onchange = async (e) => {
+      const files = [...e.target.files].slice(0, Math.max(0, 8 - g.photos.length)); e.target.value = '';
+      if (!files.length) { toast('Maksimal 8 foto', 'Hapus foto lama dulu.', 'err'); return; }
+      for (let i = 0; i < files.length; i++) {
+        m.$('[data-prog]').textContent = `Mengunggah foto ${i + 1} dari ${files.length}…`;
+        try { const data = await resizeImage(files[i], 1400, 0.85); save(await api('catalog_photo', { model_key: g.key, op: 'add', data })); } catch (ex) { toastErr(ex); break; }
+      }
+      m.$('[data-prog]').textContent = ''; toast('Foto tersimpan', g.title, 'ok');
+    };
+  }
+
+  function editModal(g, redraw) {
+    const r = g.row || {};
+    const m = modal({ title: 'Edit di website', body: `<div class="stack">
+      ${field('Nama di website', 'title', r.title || g.title, { placeholder: 'mis. Kemeja Kerja Linen Lengan Panjang' })}
+      <p class="small muted" style="margin:-6px 0 0">Gunakan kata yang dicari pembeli di Google, mis. "kemeja kerja wanita", bahan, dan model.</p>
+      <label class="f">Deskripsi<textarea class="input" name="description" rows="5" placeholder="Bahan, potongan, ukuran badan (LD/panjang), cocok untuk acara apa.">${esc(r.description || '')}</textarea></label>
+      ${field('Urutan (angka kecil tampil lebih dulu)', 'sort', String(r.sort || 0), { numeric: true })}
+      <label class="row" style="gap:8px"><input type="checkbox" name="visible" ${g.visible ? 'checked' : ''}> Tampil di website</label></div>`,
+      foot: '<button class="btn" data-x>Batal</button><button class="btn primary" data-ok>Simpan</button>' });
+    m.$('[data-ok]').onclick = async () => {
+      const v = formValues(m.$('.modal-b'));
+      try { const row = await api('catalog_save', { model_key: g.key, title: v.title, description: v.description, sort: v.sort, visible: v.visible }); g.row = row; g.title = row.title; g.visible = !!row.visible; toast('Tersimpan', row.title, 'ok'); m.close(); redraw(); } catch (ex) { toastErr(ex); }
+    };
+  }
+
+  async function drawInfo() {
+    body.innerHTML = '<div class="empty">Memuat…</div>';
+    let s = {}; try { s = await api('settings_all'); } catch (e) { toastErr(e); return; }
+    const days = String(s.web_days || '1,2,3,4,5,6,7').split(',').map(Number);
+    const DN = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+    body.innerHTML = `<div class="panel panel-b stack" style="max-width:860px" data-f>
+      <p class="small muted" style="margin:0">Info ini tampil di website dan dibaca Google (alamat, jam buka, WhatsApp). Isi selengkap dan setepat mungkin, sama persis dengan profil Google Maps toko.</p>
+      ${field('Kalimat pembuka', 'web_tagline', s.web_tagline || '', { placeholder: 'mis. Kemeja kerja, blouse, dan gamis untuk wanita aktif di Kendari.' })}
+      <label class="f">Tentang toko<textarea class="input" name="web_about" rows="3" placeholder="Cerita singkat toko, keunggulan, siapa pelanggannya.">${esc(s.web_about || '')}</textarea></label>
+      <div class="grid2">${field('Alamat lengkap', 'web_address', s.web_address || s.receipt_address || '', { placeholder: 'Jl. Malaka No. …, Andonohu, Kec. Poasia' })}${field('Kota', 'web_city', s.web_city || 'Kendari')}</div>
+      ${field('Link Google Maps toko', 'web_maps', s.web_maps || '', { placeholder: 'https://maps.app.goo.gl/…', hint: 'Buka toko di Google Maps → Bagikan → Salin link.' })}
+      <div class="grid2">${field('Nomor WhatsApp', 'web_wa', s.web_wa || s.receipt_phone || '', { placeholder: '0812…' })}${field('Instagram', 'web_instagram', s.web_instagram || 'sofeeyastore.andonohu', { placeholder: 'sofeeyastore.andonohu' })}</div>
+      <div class="grid2">${field('Jam buka', 'web_open', s.web_open || '09:00', { type: 'time' })}${field('Jam tutup', 'web_close', s.web_close || '21:00', { type: 'time' })}</div>
+      <div><div class="small bold" style="color:var(--ink-2);margin-bottom:6px">Hari buka</div><div class="quick" data-days>${DN.map((d, i) => `<button type="button" data-dv="${i + 1}" class="${days.includes(i + 1) ? 'on' : ''}">${d}</button>`).join('')}</div></div>
+      <label class="f">Tanya jawab (opsional)<textarea class="input" name="web_faq" rows="5" placeholder="Bisa kirim ke luar Kendari? | Bisa, ongkir dihitung lewat WhatsApp.">${esc(s.web_faq || '')}</textarea><span class="hint">Satu pertanyaan per baris: Pertanyaan | Jawaban. Kosongkan untuk memakai tanya jawab otomatis (alamat, jam buka, cara pesan).</span></label>
+      <label class="f">Testimoni pelanggan (opsional)<textarea class="input" name="web_testimonials" rows="4" placeholder="Bu Rina | Bahannya adem, dipakai ke kantor nyaman. | Ulasan Google Maps">${esc(s.web_testimonials || '')}</textarea><span class="hint">Hanya ulasan asli yang sudah diizinkan pelanggan. Satu per baris: Nama | Ulasan | Sumber. Bagian testimoni di website baru muncul setelah diisi.</span></label>
+      <div class="row"><span class="grow"></span><button class="btn primary" data-save>Simpan info toko</button></div></div>`;
+    const f = $('[data-f]', body);
+    $('[data-days]', f).onclick = (e) => { const b = e.target.closest('[data-dv]'); if (b) b.classList.toggle('on'); };
+    $('[data-save]', f).onclick = async () => {
+      const v = formValues(f); v.web_days = $$('[data-dv].on', f).map((b) => b.dataset.dv).join(',');
+      if (!v.web_days) { toast('Pilih minimal satu hari buka', '', 'err'); return; }
+      if (v.web_maps && !/^https:\/\//.test(v.web_maps)) { toast('Link Google Maps harus diawali https://', '', 'err'); return; }
+      try { App.settings = await api('settings_save', { values: v }); toast('Info toko disimpan', 'Website langsung memakai info baru.', 'ok'); } catch (e) { toastErr(e); }
+    };
+  }
+  drawProducts();
+};

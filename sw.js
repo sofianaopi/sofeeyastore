@@ -1,6 +1,6 @@
 /* Service worker Sofeeya POS — membuat aplikasi bisa diinstal & cepat dibuka.
    Data (api/) selalu diambil langsung dari server, tidak pernah disimpan di cache. */
-const VERSION = 'sofeeya-v25';
+const VERSION = 'sofeeya-v28';
 const ASSETS = [
   './', 'index.html', 'absen.html', 'cek-stok.html', 'manifest.json',
   'assets/css/app.css?v=20', 'assets/js/core.js?v=20', 'assets/js/promo.js?v=20', 'assets/js/qrlib.js?v=20',
@@ -18,6 +18,7 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin === location.origin && url.pathname.includes('/api/')) return; // data selalu online
+  if (url.origin === location.origin && /\/(katalog|uploads\/katalog)\//.test(url.pathname)) return; // website publik: tidak lewat cache aplikasi
   if (req.mode === 'navigate') { // halaman: utamakan versi terbaru, cadangan dari cache saat offline
     e.respondWith(fetch(req).then((r) => { const cp = r.clone(); caches.open(VERSION).then((c) => c.put(req, cp)); return r; })
       .catch(() => caches.match(req).then((r) => r || caches.match('index.html'))));

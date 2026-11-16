@@ -13,6 +13,8 @@ date_default_timezone_set($CONFIG['timezone'] ?? 'Asia/Makassar');
 ini_set('display_errors', !empty($CONFIG['debug']) ? '1' : '0');
 error_reporting(E_ALL);
 
+// POS_LIB: file ini dipakai sebagai pustaka oleh katalog/index.php (website publik) — tanpa sesi & tanpa router
+if (!defined('POS_LIB')) {
 header('Content-Type: application/json; charset=utf-8');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store');
@@ -22,10 +24,11 @@ $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERV
 session_name('SOFEEYAPOS');
 session_set_cookie_params(['lifetime' => 60 * 60 * 24 * 14, 'path' => '/', 'secure' => $secure, 'httponly' => true, 'samesite' => 'Lax']);
 session_start();
+}
 
 // Mode demo (hanya aktif bila config 'demo' => true): tiap pengunjung mendapat database contoh sendiri
 $DEMO = null;
-if (!empty($CONFIG['demo'])) require __DIR__ . '/demo.php';
+if (!empty($CONFIG['demo']) && !defined('POS_LIB')) require __DIR__ . '/demo.php';
 
 // ---------------------------------------------------------------- helpers
 class ApiError extends Exception {
@@ -58,7 +61,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 11) return;
+    if ($v >= 12) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -132,6 +135,13 @@ function migrate(PDO $pdo): void {
     // v11: potongan harga (Rupiah per pcs) untuk barang reject, diatur admin
     $addCol('rejects', 'discount', 'DECIMAL(14,2) NOT NULL DEFAULT 0');
     $setDefault('schema_version', '11', true);
+    // v12: katalog website (foto per model, tampil/tidak, deskripsi)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS web_catalog (
+        id $pk, model_key VARCHAR(255) NOT NULL DEFAULT '', slug VARCHAR(140) NOT NULL DEFAULT '', visible INT NOT NULL DEFAULT 0,
+        title VARCHAR(200) NOT NULL DEFAULT '', description TEXT NULL, photos TEXT NULL, sort INT NOT NULL DEFAULT 0,
+        created DATETIME NULL, updated DATETIME NULL)$tail");
+    try { $pdo->exec('CREATE UNIQUE INDEX idx_webcat_key ON web_catalog (model_key)'); } catch (Throwable $e) { /* sudah ada */ }
+    $setDefault('schema_version', '12', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -193,6 +203,8 @@ function check_perm(string $perm): array {
 $TABLES = [
     'products' => ['fields' => ['name' => 's', 'barcode' => 's', 'category' => 's', 'cost' => 'n', 'price' => 'n', 'discount' => 'n', 'stock' => 'i', 'commission' => 'n', 'image' => 's', 'stock_in_date' => 'd', 'model' => 's', 'size' => 's', 'color' => 's'],
         'required' => ['name'], 'search' => ['name', 'barcode', 'category', 'model', 'color'], 'read' => 'auth', 'write' => 'admin', 'order' => 'name'],
+    'web_catalog' => ['fields' => ['model_key' => 's', 'slug' => 's', 'visible' => 'b', 'title' => 's', 'description' => 's', 'photos' => 'j', 'sort' => 'i'],
+        'search' => ['model_key', 'title'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => 'sort'],
     'promos' => ['fields' => ['name' => 's', 'type' => 's', 'value' => 'n', 'min_purchase' => 'n', 'min_price' => 'n', 'max_price' => 'n', 'buy_qty' => 'i', 'free_qty' => 'i', 'free_category' => 's', 'categories' => 'j', 'product_ids' => 'j', 'free_product_ids' => 'j', 'code' => 's', 'stackable' => 'b', 'active' => 'b', 'start_date' => 'd', 'end_date' => 'd', 'badge_text' => 's', 'badge_color' => 's'],
         'required' => ['name', 'type'], 'search' => ['name', 'code'], 'read' => 'auth', 'write' => 'promo', 'order' => 'name'],
     'members' => ['fields' => ['name' => 's', 'phone' => 's', 'email' => 's', 'points' => 'i', 'voucher_amount' => 'n', 'voucher_used' => 'b', 'no_broadcast' => 'b'],
@@ -537,6 +549,96 @@ function product_image(array $in): array {
         if (strpos($f, 'uploads/produk/') === 0 && !one('SELECT id FROM products WHERE image = ? LIMIT 1', [$f])) @unlink(dirname(__DIR__) . '/' . $f);
     }
     return ['image' => $url];
+}
+
+// =====================================================================
+//  KATALOG WEBSITE (sofeeyastore.id/katalog)
+// =====================================================================
+// kunci model: nama model (varian warna/ukuran jadi satu), atau "id:<id>" untuk barang tanpa model
+function cat_key(array $p): string { return trim((string)($p['model'] ?? '')) !== '' ? trim((string)$p['model']) : 'id:' . (int)$p['id']; }
+function cat_slugify(string $t): string {
+    $t = strtolower(trim(preg_replace('~[^A-Za-z0-9]+~', '-', iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $t) ?: $t), '-'));
+    return substr($t !== '' ? $t : 'produk', 0, 90);
+}
+function cat_row(string $key, bool $create = true): ?array {
+    $r = one('SELECT * FROM web_catalog WHERE model_key = ?', [$key]);
+    if ($r || !$create) return $r ? cast_row('web_catalog', $r) : null;
+    $title = strpos($key, 'id:') === 0 ? (string)(one('SELECT name FROM products WHERE id = ?', [(int)substr($key, 3)])['name'] ?? 'Produk') : $key;
+    $base = cat_slugify($title); $slug = $base; $i = 2;
+    while (one('SELECT id FROM web_catalog WHERE slug = ?', [$slug])) $slug = $base . '-' . $i++;
+    $id = insert_row('web_catalog', ['model_key' => $key, 'slug' => $slug, 'visible' => 0, 'title' => $title, 'description' => '', 'photos' => '[]', 'sort' => 0]);
+    return get_row('web_catalog', $id);
+}
+function cat_key_ok(string $key): string {
+    $key = trim(mb_substr($key, 0, 255));
+    if ($key === '') fail('Pilih barang.');
+    $ok = strpos($key, 'id:') === 0 ? one('SELECT id FROM products WHERE id = ?', [(int)substr($key, 3)]) : one('SELECT id FROM products WHERE model = ? LIMIT 1', [$key]);
+    if (!$ok) fail('Barang tidak ditemukan.');
+    return $key;
+}
+// admin: tampil di website, judul, deskripsi, urutan
+function catalog_save(array $in): array {
+    need_admin();
+    $r = cat_row(cat_key_ok((string)($in['model_key'] ?? '')));
+    $v = [];
+    if (isset($in['visible'])) $v['visible'] = !empty($in['visible']) ? 1 : 0;
+    if (isset($in['title'])) { $t = trim(mb_substr((string)$in['title'], 0, 200)); if ($t === '') fail('Nama di website tidak boleh kosong.'); $v['title'] = $t; }
+    if (isset($in['description'])) $v['description'] = trim(mb_substr((string)$in['description'], 0, 3000));
+    if (isset($in['sort'])) $v['sort'] = (int)$in['sort'];
+    if ($v) update_row('web_catalog', (int)$r['id'], $v);
+    return get_row('web_catalog', (int)$r['id']);
+}
+// pegawai & admin: foto produk untuk website (maks. 8 per model)
+function catalog_photo(array $in): array {
+    global $CONFIG;
+    need_auth();
+    if (!empty($CONFIG['demo'])) fail('Upload foto tidak tersedia di versi demo.', 403);
+    $r = cat_row(cat_key_ok((string)($in['model_key'] ?? '')));
+    $photos = array_values(array_filter((array)$r['photos'], 'is_string'));
+    $op = (string)($in['op'] ?? 'add');
+    $dir = dirname(__DIR__) . '/uploads/katalog';
+    if ($op === 'add') {
+        if (count($photos) >= 8) fail('Maksimal 8 foto per barang. Hapus foto lama dulu.');
+        $data = (string)($in['data'] ?? '');
+        if (!preg_match('~^data:image/(jpeg|png|webp);base64,~', $data)) fail('Format foto tidak didukung. Gunakan JPG/PNG.');
+        $bin = base64_decode(substr($data, strpos($data, ',') + 1), true);
+        if ($bin === false || strlen($bin) > 3000000) fail('Ukuran foto terlalu besar (maks. 3 MB).');
+        $info = @getimagesizefromstring($bin);
+        if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) fail('File bukan gambar yang valid.');
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true)) fail('Folder uploads/katalog tidak dapat dibuat. Periksa izin folder.', 500);
+        $name = cat_slugify((string)$r['title']) . '-' . bin2hex(random_bytes(5)) . '.jpg';
+        $ok = false;
+        if (function_exists('imagecreatefromstring') && function_exists('imagejpeg')) {
+            $im = @imagecreatefromstring($bin);
+            if ($im) {
+                $w = imagesx($im); $h = imagesy($im); $k = min(1, 1200 / max($w, $h)); $nw = (int)round($w * $k); $nh = (int)round($h * $k);
+                $dst = imagecreatetruecolor($nw, $nh); imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
+                imagecopyresampled($dst, $im, 0, 0, 0, 0, $nw, $nh, $w, $h); imagedestroy($im);
+                if (function_exists('imageinterlace')) imageinterlace($dst, true);
+                $ok = imagejpeg($dst, $dir . '/' . $name, 80); imagedestroy($dst);
+            }
+        }
+        if (!$ok) { if ($info[2] !== IMAGETYPE_JPEG) fail('Server tidak dapat mengolah foto PNG. Gunakan JPG.'); $ok = (bool)file_put_contents($dir . '/' . $name, $bin); }
+        if (!$ok) fail('Gagal menyimpan foto.', 500);
+        $url = 'uploads/katalog/' . $name;
+        $photos[] = $url;
+        // foto pertama juga dipakai di layar kasir untuk varian yang belum punya foto
+        $where = strpos($r['model_key'], 'id:') === 0 ? ['id = ?', (int)substr($r['model_key'], 3)] : ['model = ?', $r['model_key']];
+        q("UPDATE products SET image = ?, updated = ? WHERE {$where[0]} AND (image IS NULL OR image = '')", [$photos[0], now(), $where[1]]);
+    } elseif ($op === 'remove') {
+        $f = (string)($in['photo'] ?? '');
+        if (!in_array($f, $photos, true)) fail('Foto tidak ditemukan.');
+        $photos = array_values(array_filter($photos, fn($x) => $x !== $f));
+        q("UPDATE products SET image = ?, updated = ? WHERE image = ?", [$photos[0] ?? '', now(), $f]);
+        if (strpos($f, 'uploads/katalog/') === 0 && !preg_match('~\.\.~', $f)) @unlink(dirname(__DIR__) . '/' . $f);
+    } elseif ($op === 'order') {
+        $new = array_values(array_filter((array)($in['photos'] ?? []), 'is_string'));
+        $a = $new; $b = $photos; sort($a); sort($b);
+        if ($a !== $b) fail('Urutan foto tidak valid. Muat ulang halaman.');
+        $photos = $new;
+    } else fail('Aksi foto tidak dikenal.');
+    update_row('web_catalog', (int)$r['id'], ['photos' => json_encode($photos, JSON_UNESCAPED_SLASHES)]);
+    return get_row('web_catalog', (int)$r['id']);
 }
 
 function gen_invoice(): string {
@@ -1411,6 +1513,7 @@ function stockcheck_review(array $in): array {
 }
 
 // ---------------------------------------------------------------- router
+if (defined('POS_LIB')) return; // dipakai sebagai pustaka: berhenti sebelum router
 try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') fail('Gunakan POST.', 405);
     if (($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '') !== 'SofeeyaPOS') fail('Permintaan tidak valid.', 403); // perlindungan CSRF
@@ -1465,7 +1568,8 @@ try {
         }
         case 'settings_save': {
             need_admin();
-            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days', 'wa_enabled', 'wa_provider', 'wa_token', 'wa_targets', 'wa_min_total', 'wa_items', 'wa_daily', 'wa_retur', 'push_enabled'];
+            $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days', 'wa_enabled', 'wa_provider', 'wa_token', 'wa_targets', 'wa_min_total', 'wa_items', 'wa_daily', 'wa_retur', 'push_enabled',
+                'web_tagline', 'web_about', 'web_address', 'web_city', 'web_maps', 'web_wa', 'web_instagram', 'web_open', 'web_close', 'web_days', 'web_faq', 'web_testimonials'];
             if (isset($in['values']['wa_token']) && (strpos((string)$in['values']['wa_token'], '•') !== false)) unset($in['values']['wa_token']); // token tersamar = tidak diubah
             if (isset($in['values']['wa_provider']) && !in_array($in['values']['wa_provider'], ['fonnte', 'callmebot'], true)) fail('Layanan WhatsApp tidak dikenal.');
             if (isset($in['values']['qris_payload'])) { $qp = trim((string)$in['values']['qris_payload']); if ($qp !== '' && (strpos($qp, '000201') !== 0 || strlen($qp) > 1000)) fail('Kode QRIS tidak valid.'); $in['values']['qris_payload'] = $qp; }
@@ -1498,6 +1602,8 @@ try {
         case 'reject_delete': $out = reject_delete($in); break;
         case 'reject_quote': $out = reject_quote($in); break;
         case 'reject_set_discount': $out = reject_set_discount($in); break;
+        case 'catalog_save': $out = catalog_save($in); break;
+        case 'catalog_photo': $out = catalog_photo($in); break;
         case 'report_members': $out = report_members($in); break;
         case 'report_commission': $out = report_commission($in); break;
         case 'tx_delete': $out = tx_delete($in); break;

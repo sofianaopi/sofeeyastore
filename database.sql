@@ -275,6 +275,21 @@ CREATE TABLE IF NOT EXISTS rejects (
   INDEX idx_rejects_created (created)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Katalog website (sofeeyastore.id/katalog): foto per model, tampil/tidak, deskripsi
+CREATE TABLE IF NOT EXISTS web_catalog (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  model_key VARCHAR(255) NOT NULL DEFAULT '',
+  slug VARCHAR(140) NOT NULL DEFAULT '',
+  visible INT NOT NULL DEFAULT 0,
+  title VARCHAR(200) NOT NULL DEFAULT '',
+  description TEXT NULL,
+  photos TEXT NULL,
+  sort INT NOT NULL DEFAULT 0,
+  created DATETIME NULL,
+  updated DATETIME NULL,
+  UNIQUE KEY idx_webcat_key (model_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Biaya operasional (untuk laporan laba rugi)
 CREATE TABLE IF NOT EXISTS expenses (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -349,7 +364,7 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('sales_channels', '["Toko","WhatsApp","Instagram","Shopee","TikTok Shop"]', NOW(), NOW()),
  ('size_sets', '["S, M, L, XL","XS, S, M, L, XL, XXL","All size","M, L, XL, XXL, 3XL","27, 28, 29, 30, 31, 32","36, 37, 38, 39, 40"]', NOW(), NOW()),
  ('return_days', '7', NOW(), NOW()),
- ('schema_version', '11', NOW(), NOW());
+ ('schema_version', '12', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());

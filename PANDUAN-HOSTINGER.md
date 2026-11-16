@@ -44,6 +44,35 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Website katalog untuk Google (versi 26–28)
+
+Versi 28: bagian baru **Cara pesan dari rumah** (pilih → pesan via WhatsApp → ambil di toko / antar dalam kota / kirim ke luar kota) dan **Belanja di Sofeeya Store** (harga bersahabat, poin member, harga sama dengan di toko). **Testimoni** diisi admin di Katalog website → Info toko (satu per baris: Nama | Ulasan | Sumber) — hanya ulasan asli yang sudah diizinkan; bagian ini baru muncul setelah diisi. Panduan tampilan ada di DESIGN.md.
+
+Tampilan versi 27: "etalase toko" — kanopi bergaris kuning, rel gantungan berisi 3 barang dengan label harga (berayun sekali saat dibuka), kartu barang berbentuk badan baju dengan label harga gantung; 2 kolom di HP.
+
+Alamat: **https://sofeeyastore.id/katalog/** — halaman publik untuk pembeli, terhubung langsung ke database kasir.
+
+| Bagian | Isi |
+|---|---|
+| Halaman utama | Pembuka, promo otomatis hari ini, katalog per kategori, alamat & jam buka, peta, tanya jawab |
+| Halaman barang | /katalog/p/nama-barang — foto, harga, pilihan warna & ukuran yang masih ada, tombol **Pesan via WhatsApp** (pesan otomatis berisi barang, warna, ukuran, harga, link) |
+| Harga | Sama dengan kasir: harga − harga khusus − promo otomatis terbaik. Promo dengan minimal belanja / paket tampil sebagai info |
+| Stok | Barang yang stoknya habis otomatis hilang dari website; varian habis tidak bisa dipilih |
+| Google | Judul & deskripsi per halaman, data terstruktur (ClothingStore, Product, FAQ), sitemap otomatis, robots.txt |
+
+**Menu Katalog website** di aplikasi:
+- **Admin**: menyalakan *Tampil* per barang, **Edit** (nama di website, deskripsi, urutan), tab **Info toko** (kalimat pembuka, tentang toko, alamat, link Google Maps, WhatsApp, Instagram, jam & hari buka, tanya jawab).
+- **Pegawai (kasir) & admin**: tombol **Foto** → *Tambah foto* (bisa langsung dari kamera HP, maks. 8 foto per barang, foto otomatis dikecilkan), geser urutan, hapus. Foto pertama juga dipakai di layar kasir.
+
+**Supaya cepat muncul di Google (dilakukan sekali oleh pemilik):**
+1. Isi tab **Info toko** lengkap dan sama persis dengan profil Google Maps toko (nama, alamat, nomor, jam buka).
+2. Daftarkan sofeeyastore.id di **Google Search Console** → tambahkan sitemap `https://sofeeyastore.id/katalog/sitemap.xml` → minta pengindeksan untuk `https://sofeeyastore.id/katalog/`.
+3. Di **Google Business Profile** (Maps) toko, isi kolom Situs web dengan `https://sofeeyastore.id/katalog/`.
+4. Pasang link yang sama di bio Instagram, status WhatsApp, dan stiker/struk.
+5. Beri nama barang yang dicari orang (mis. "Kemeja Kerja Wanita Linen") dan deskripsi bahan & ukuran; tambah foto secara rutin.
+
+Folder baru di server: `katalog/` (ikut zip) dan `uploads/katalog/` (dibuat otomatis saat foto pertama diunggah — jangan dihapus saat update).
+
 ## Jual barang reject di kasir (versi 22–25)
 
 Barang yang sudah dicatat di **Laporan keuangan → Barang reject** bisa dijual lagi dengan **potongan Rupiah** dari harga normal.

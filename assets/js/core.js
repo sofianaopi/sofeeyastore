@@ -166,7 +166,7 @@ function modal({ title = '', body = '', foot = '', size = '', onClose } = {}) {
   const close = () => { if (shut) return; shut = true; Motion.leave(bg, 'closing', 180); document.removeEventListener('keydown', onKey); onClose && onClose(); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
   bg.addEventListener('mousedown', (e) => { if (e.target === bg) close(); });
-  $('[data-x]', bg).onclick = close;
+  $$('[data-x]', bg).forEach((b) => (b.onclick = close)); // tombol X   $$('[data-x]', bg).forEach((b) => (b.onclick = close)); // tombol X & semua tombol "Batal" bertanda data-x semua tombol "Batal" bertanda data-x
   document.addEventListener('keydown', onKey);
   document.body.appendChild(bg);
   const first = $('input:not([type=hidden]),select,textarea', bg);
