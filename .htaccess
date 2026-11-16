@@ -25,7 +25,9 @@ RedirectMatch 404 ^/api/demo-data(/.*)?$
   Header set Referrer-Policy "same-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Strict-Transport-Security "max-age=31536000"
-  Header always set X-Robots-Tag "noindex, nofollow"
+  # aplikasi kasir tidak diindeks; website katalog & fotonya boleh
+  SetEnvIf Request_URI "^/(katalog|uploads/katalog)(/|$)" PUBLIC_WEB
+  Header always set X-Robots-Tag "noindex, nofollow" env=!PUBLIC_WEB
   <FilesMatch "\.(js|css)$">
     Header set Cache-Control "public, max-age=604800"
   </FilesMatch>
