@@ -61,7 +61,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 12) return;
+    if ($v >= 13) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -142,6 +142,15 @@ function migrate(PDO $pdo): void {
         created DATETIME NULL, updated DATETIME NULL)$tail");
     try { $pdo->exec('CREATE UNIQUE INDEX idx_webcat_key ON web_catalog (model_key)'); } catch (Throwable $e) { /* sudah ada */ }
     $setDefault('schema_version', '12', true);
+    // v13: laporan tutup kasir harian (uang per pecahan, pengunjung, alasan tidak membeli, barang dicari)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS daily_reports (
+        id $pk, report_date VARCHAR(10) NOT NULL DEFAULT '', user_id INT NOT NULL DEFAULT 0, user_name VARCHAR(200) NOT NULL DEFAULT '',
+        cash_counts TEXT NULL, cash_total DECIMAL(14,2) NOT NULL DEFAULT 0, opening_cash DECIMAL(14,2) NOT NULL DEFAULT 0,
+        cash_out DECIMAL(14,2) NOT NULL DEFAULT 0, cash_sales DECIMAL(14,2) NOT NULL DEFAULT 0, expected DECIMAL(14,2) NOT NULL DEFAULT 0,
+        diff DECIMAL(14,2) NOT NULL DEFAULT 0, tx_count INT NOT NULL DEFAULT 0, visitors INT NOT NULL DEFAULT 0, buyers INT NOT NULL DEFAULT 0,
+        reasons TEXT NULL, wanted TEXT NULL, note TEXT NULL, created DATETIME NULL, updated DATETIME NULL)$tail");
+    try { $pdo->exec('CREATE UNIQUE INDEX idx_dr_day_user ON daily_reports (report_date, user_id)'); } catch (Throwable $e) { /* sudah ada */ }
+    $setDefault('schema_version', '13', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -203,6 +212,8 @@ function check_perm(string $perm): array {
 $TABLES = [
     'products' => ['fields' => ['name' => 's', 'barcode' => 's', 'category' => 's', 'cost' => 'n', 'price' => 'n', 'discount' => 'n', 'stock' => 'i', 'commission' => 'n', 'image' => 's', 'stock_in_date' => 'd', 'model' => 's', 'size' => 's', 'color' => 's'],
         'required' => ['name'], 'search' => ['name', 'barcode', 'category', 'model', 'color'], 'read' => 'auth', 'write' => 'admin', 'order' => 'name'],
+    'daily_reports' => ['fields' => ['report_date' => 's', 'user_id' => 'i', 'user_name' => 's', 'cash_counts' => 'j', 'cash_total' => 'n', 'opening_cash' => 'n', 'cash_out' => 'n', 'cash_sales' => 'n', 'expected' => 'n', 'diff' => 'n', 'tx_count' => 'i', 'visitors' => 'i', 'buyers' => 'i', 'reasons' => 'j', 'wanted' => 'j', 'note' => 's'],
+        'search' => ['user_name'], 'read' => 'admin', 'write' => 'none', 'create' => 'none', 'delete' => 'admin', 'order' => '-report_date'],
     'web_catalog' => ['fields' => ['model_key' => 's', 'slug' => 's', 'visible' => 'b', 'title' => 's', 'description' => 's', 'photos' => 'j', 'sort' => 'i'],
         'search' => ['model_key', 'title'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => 'sort'],
     'promos' => ['fields' => ['name' => 's', 'type' => 's', 'value' => 'n', 'min_purchase' => 'n', 'min_price' => 'n', 'max_price' => 'n', 'buy_qty' => 'i', 'free_qty' => 'i', 'free_category' => 's', 'categories' => 'j', 'product_ids' => 'j', 'free_product_ids' => 'j', 'code' => 's', 'stackable' => 'b', 'active' => 'b', 'start_date' => 'd', 'end_date' => 'd', 'badge_text' => 's', 'badge_color' => 's'],
@@ -639,6 +650,70 @@ function catalog_photo(array $in): array {
     } else fail('Aksi foto tidak dikenal.');
     update_row('web_catalog', (int)$r['id'], ['photos' => json_encode($photos, JSON_UNESCAPED_SLASHES)]);
     return get_row('web_catalog', (int)$r['id']);
+}
+
+// ---------------------------------------------------------------- laporan tutup kasir harian (per kasir per hari)
+const CASH_DENOMS = [100000, 50000, 20000, 10000, 5000, 2000, 1000];
+const DR_REASONS = ['Harga terlalu mahal', 'Ukuran tidak ada', 'Model/warna tidak cocok', 'Hanya lihat-lihat', 'Akan kembali lagi', 'Lainnya'];
+// penjualan tunai & jumlah transaksi kasir pada tanggal itu (retur tunai mengurangi)
+function dr_system(int $uid, string $date): array {
+    $r = one("SELECT COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total ELSE 0 END), 0) AS cash, SUM(CASE WHEN total > 0 THEN 1 ELSE 0 END) AS n FROM transactions WHERE cashier_id = ? AND created >= ? AND created <= ?", [$uid, $date . ' 00:00:00', $date . ' 23:59:59']);
+    return ['cash_sales' => round((float)($r['cash'] ?? 0)), 'tx_count' => (int)($r['n'] ?? 0)];
+}
+function dr_date(array $in, array $u): string {
+    $d = substr((string)($in['date'] ?? ''), 0, 10);
+    if ($d === '' || $u['role'] !== 'admin') $d = date('Y-m-d'); // kasir hanya untuk hari ini
+    if (!preg_match('~^\d{4}-\d{2}-\d{2}$~', $d)) fail('Tanggal tidak valid.');
+    return $d;
+}
+function report_get(array $in): array {
+    $u = need_auth();
+    $date = dr_date($in, $u);
+    $uid = $u['role'] === 'admin' && !empty($in['user_id']) ? (int)$in['user_id'] : (int)$u['id'];
+    $row = one('SELECT * FROM daily_reports WHERE report_date = ? AND user_id = ?', [$date, $uid]);
+    $mine = array_map(fn($r) => cast_row('daily_reports', $r), all('SELECT * FROM daily_reports WHERE user_id = ? ORDER BY report_date DESC LIMIT 14', [(int)$u['id']]));
+    return ['date' => $date, 'report' => $row ? cast_row('daily_reports', $row) : null, 'system' => dr_system($uid, $date), 'denoms' => CASH_DENOMS, 'reasons' => DR_REASONS, 'history' => $mine];
+}
+function report_save(array $in): array {
+    $u = need_auth();
+    $date = dr_date($in, $u);
+    $counts = []; $total = 0;
+    foreach (CASH_DENOMS as $d) { $n = max(0, (int)(($in['cash_counts'] ?? [])[(string)$d] ?? 0)); if ($n > 100000) fail('Jumlah lembar terlalu besar.'); $counts[(string)$d] = $n; $total += $n * $d; }
+    $opening = max(0, round((float)($in['opening_cash'] ?? 0))); $out = max(0, round((float)($in['cash_out'] ?? 0)));
+    $visitors = max(0, (int)($in['visitors'] ?? 0)); $buyers = max(0, (int)($in['buyers'] ?? 0));
+    if ($visitors > 100000 || $buyers > 100000) fail('Jumlah pengunjung tidak wajar.');
+    if ($buyers > $visitors) fail('Jumlah yang membeli tidak boleh lebih banyak dari jumlah yang datang.');
+    $reasons = [];
+    foreach ((array)($in['reasons'] ?? []) as $r) {
+        $name = trim(mb_substr((string)($r['reason'] ?? ''), 0, 60)); $n = max(0, (int)($r['count'] ?? 0));
+        if ($name === '' || $n === 0) continue;
+        if (!in_array($name, DR_REASONS, true)) $name = 'Lainnya';
+        $note = trim(mb_substr((string)($r['note'] ?? ''), 0, 200));
+        if (isset($reasons[$name])) { $reasons[$name]['count'] += $n; if ($note !== '') $reasons[$name]['note'] = trim($reasons[$name]['note'] . '; ' . $note, '; '); }
+        else $reasons[$name] = ['reason' => $name, 'count' => $n, 'note' => $note];
+    }
+    $reasons = array_values($reasons);
+    $wanted = [];
+    foreach (array_slice((array)($in['wanted'] ?? []), 0, 30) as $w) {
+        $item = trim(mb_substr((string)($w['item'] ?? ''), 0, 120)); if ($item === '') continue;
+        $wanted[] = ['item' => $item, 'detail' => trim(mb_substr((string)($w['detail'] ?? ''), 0, 120)), 'count' => max(1, min(999, (int)($w['count'] ?? 1)))];
+    }
+    $sys = dr_system((int)$u['id'], $date);
+    $expected = $opening + $sys['cash_sales'] - $out;
+    $vals = ['report_date' => $date, 'user_id' => (int)$u['id'], 'user_name' => $u['name'], 'cash_counts' => json_encode($counts), 'cash_total' => $total,
+        'opening_cash' => $opening, 'cash_out' => $out, 'cash_sales' => $sys['cash_sales'], 'expected' => $expected, 'diff' => $total - $expected, 'tx_count' => $sys['tx_count'],
+        'visitors' => $visitors, 'buyers' => $buyers, 'reasons' => json_encode($reasons, JSON_UNESCAPED_UNICODE), 'wanted' => json_encode($wanted, JSON_UNESCAPED_UNICODE),
+        'note' => trim(mb_substr((string)($in['note'] ?? ''), 0, 1000))];
+    $old = one('SELECT id FROM daily_reports WHERE report_date = ? AND user_id = ?', [$date, (int)$u['id']]);
+    $id = $old ? (int)$old['id'] : 0;
+    if ($id) update_row('daily_reports', $id, $vals); else $id = insert_row('daily_reports', $vals);
+    return get_row('daily_reports', $id);
+}
+// admin: semua laporan pada rentang tanggal
+function report_list(array $in): array {
+    need_admin();
+    $from = substr((string)($in['from'] ?? date('Y-m-01')), 0, 10); $to = substr((string)($in['to'] ?? date('Y-m-d')), 0, 10);
+    return array_map(fn($r) => cast_row('daily_reports', $r), all('SELECT * FROM daily_reports WHERE report_date >= ? AND report_date <= ? ORDER BY report_date DESC, user_name', [$from, $to]));
 }
 
 // ---------------------------------------------------------------- testimoni website
@@ -1723,6 +1798,9 @@ try {
         case 'catalog_photo': $out = catalog_photo($in); break;
         case 'testi_photo': $out = testi_photo($in); break;
         case 'web_store_photo': $out = web_store_photo($in); break;
+        case 'report_get': $out = report_get($in); break;
+        case 'report_save': $out = report_save($in); break;
+        case 'report_list': $out = report_list($in); break;
         case 'ig_sync': $out = ig_action($in); break;
         case 'report_members': $out = report_members($in); break;
         case 'report_commission': $out = report_commission($in); break;

@@ -9,6 +9,7 @@ const App = {
     { id: 'kasir', label: 'Kasir', icon: 'kasir', can: () => true },
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', can: (u) => u.role === 'admin' },
     { id: 'laporan', label: 'Laporan keuangan', icon: 'laporan', can: () => true },
+    { id: 'tutup', label: 'Tutup kasir', icon: 'clipboard', can: () => true },
     { id: 'pengiriman', label: 'Pengiriman', icon: 'truck', can: () => true },
     { id: 'qris', label: 'QRIS', icon: 'qr', can: (u) => u.role === 'admin' },
     { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },

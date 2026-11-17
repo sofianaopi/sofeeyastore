@@ -44,6 +44,16 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Tutup kasir — laporan akhir hari (versi 32)
+
+Menu **Tutup kasir** (semua akun). Setiap kasir mengisi **satu laporan per hari** (bisa diperbarui sampai hari berganti):
+1. **Uang di laci** per pecahan Rp100.000, 50.000, 20.000, 10.000, 5.000, 2.000, 1.000 (tombol − / +), total otomatis. Isi **modal awal** dan **uang keluar** dari laci → aplikasi menghitung **seharusnya** (modal + penjualan tunai kasir itu hari ini − uang keluar) dan **selisih** (Pas / Lebih / Kurang).
+2. **Pengunjung**: jumlah yang datang dan yang membeli (terisi awal dari jumlah transaksi kasir).
+3. **Alasan tidak membeli** (jumlah orang per alasan): harga terlalu mahal, ukuran tidak ada, model/warna tidak cocok, hanya lihat-lihat, akan kembali lagi, lainnya (diketik).
+4. **Barang yang dicari tapi tidak ada**: nama barang, ukuran/warna, berapa orang.
+
+**Admin** → tab **Rekap semua kasir**: pilih tanggal; ringkasan pengunjung, tingkat membeli, total selisih kas, grafik alasan tidak membeli, **barang paling dicari** (bahan belanja stok), tabel per kasir + Detail, dan **Unduh Excel**. Kasir hanya melihat laporannya sendiri.
+
 ## Website katalog untuk Google (versi 26–31)
 
 Versi 31 — 8 unsur landing page: headline, visual utama (foto barang atau **foto toko** di Info toko), keunggulan, produk, testimoni, harga & **Penawaran hari ini** (bagian promo + tombol tanya promo via WhatsApp), tombol WhatsApp, kontak & lokasi. Panel **Kelengkapan landing page** di menu Katalog website menunjukkan unsur yang belum lengkap beserta tombol *Lengkapi*.
