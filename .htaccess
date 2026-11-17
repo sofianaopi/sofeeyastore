@@ -7,6 +7,8 @@ DirectoryIndex index.html index.php
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteRule ^katalog$ /katalog/ [R=301,L]
+  # halaman pegawai untuk foto produk: sofeeyastore.id/updategambar
+  RewriteRule ^update-?gambar/?$ update-gambar.html [L,NC]
   RewriteRule ^katalog/sitemap\.xml$ katalog/index.php?sitemap=1 [L,QSA]
   RewriteRule ^katalog/p/([a-z0-9\-]+)/?$ katalog/index.php?p=$1 [L,QSA]
 </IfModule>
