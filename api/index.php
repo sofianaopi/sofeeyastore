@@ -641,6 +641,119 @@ function catalog_photo(array $in): array {
     return get_row('web_catalog', (int)$r['id']);
 }
 
+// ---------------------------------------------------------------- testimoni website
+// gambar (tangkapan layar) disimpan di uploads/katalog/testi, daftar di setting web_testi_shots
+function web_save_image(string $data, string $sub, string $prefix, int $max = 1200): string {
+    $dir = dirname(__DIR__) . '/uploads/katalog/' . $sub;
+    if (!preg_match('~^data:image/(jpeg|png|webp);base64,~', $data)) fail('Format gambar tidak didukung. Gunakan JPG/PNG.');
+    $bin = base64_decode(substr($data, strpos($data, ',') + 1), true);
+    return web_save_binary($bin === false ? '' : $bin, $dir, $sub, $prefix, $max);
+}
+function web_save_binary(string $bin, string $dir, string $sub, string $prefix, int $max): string {
+    if ($bin === '' || strlen($bin) > 6000000) fail('Ukuran gambar terlalu besar (maks. 6 MB).');
+    $info = @getimagesizefromstring($bin);
+    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) fail('File bukan gambar yang valid.');
+    if (!is_dir($dir) && !@mkdir($dir, 0755, true)) fail('Folder uploads/katalog tidak dapat dibuat. Periksa izin folder.', 500);
+    $name = $prefix . '-' . bin2hex(random_bytes(5)) . '.jpg'; $ok = false;
+    if (function_exists('imagecreatefromstring') && function_exists('imagejpeg') && ($im = @imagecreatefromstring($bin))) {
+        $w = imagesx($im); $h = imagesy($im); $k = min(1, $max / max($w, $h)); $nw = (int)round($w * $k); $nh = (int)round($h * $k);
+        $dst = imagecreatetruecolor($nw, $nh); imagefill($dst, 0, 0, imagecolorallocate($dst, 255, 255, 255));
+        imagecopyresampled($dst, $im, 0, 0, 0, 0, $nw, $nh, $w, $h); imagedestroy($im);
+        $ok = imagejpeg($dst, $dir . '/' . $name, 82); imagedestroy($dst);
+    }
+    if (!$ok) { if ($info[2] !== IMAGETYPE_JPEG) fail('Server tidak dapat mengolah PNG. Gunakan JPG.'); $ok = (bool)file_put_contents($dir . '/' . $name, $bin); }
+    if (!$ok) fail('Gagal menyimpan gambar.', 500);
+    return 'uploads/katalog/' . $sub . '/' . $name;
+}
+function testi_shots(): array { $v = json_decode((string)setting('web_testi_shots', '[]'), true); return is_array($v) ? array_values(array_filter($v, 'is_string')) : []; }
+// admin: tangkapan layar testimoni (chat WA, komentar/DM IG) — maks. 12
+function testi_photo(array $in): array {
+    global $CONFIG;
+    need_admin();
+    if (!empty($CONFIG['demo'])) fail('Upload tidak tersedia di versi demo.', 403);
+    $list = testi_shots(); $op = (string)($in['op'] ?? 'add');
+    if ($op === 'add') {
+        if (count($list) >= 12) fail('Maksimal 12 tangkapan layar. Hapus yang lama dulu.');
+        $list[] = web_save_image((string)($in['data'] ?? ''), 'testi', 'testimoni', 1100);
+    } elseif ($op === 'remove') {
+        $f = (string)($in['photo'] ?? ''); if (!in_array($f, $list, true)) fail('Gambar tidak ditemukan.');
+        $list = array_values(array_filter($list, fn($x) => $x !== $f));
+        if (strpos($f, 'uploads/katalog/testi/') === 0 && strpos($f, '..') === false) @unlink(dirname(__DIR__) . '/' . $f);
+    } elseif ($op === 'order') {
+        $new = array_values(array_filter((array)($in['photos'] ?? []), 'is_string')); $a = $new; $b = $list; sort($a); sort($b);
+        if ($a !== $b) fail('Urutan tidak valid. Muat ulang halaman.'); $list = $new;
+    } else fail('Aksi tidak dikenal.');
+    set_setting('web_testi_shots', json_encode($list, JSON_UNESCAPED_SLASHES));
+    return ['shots' => $list];
+}
+
+// admin: foto toko/etalase untuk bagian atas website (dipakai bila belum ada foto barang)
+function web_store_photo(array $in): array {
+    global $CONFIG;
+    need_admin();
+    if (!empty($CONFIG['demo'])) fail('Upload tidak tersedia di versi demo.', 403);
+    $old = (string)setting('web_store_photo', '');
+    $new = (string)($in['op'] ?? 'add') === 'remove' ? '' : web_save_image((string)($in['data'] ?? ''), 'toko', 'toko', 1600);
+    if ($old !== '' && strpos($old, 'uploads/katalog/toko/') === 0 && strpos($old, '..') === false) @unlink(dirname(__DIR__) . '/' . $old);
+    set_setting('web_store_photo', $new);
+    return ['photo' => $new];
+}
+
+// ---------------------------------------------------------------- Instagram (Instagram API with Instagram Login)
+// Postingan akun toko yang caption-nya memuat tagar pilihan (bawaan #testimoni) tampil sebagai testimoni.
+// Token panjang (60 hari) diperbarui otomatis tiap ±20 hari; gambar disalin ke server (URL Instagram kedaluwarsa).
+function ig_http(string $url): array {
+    $test = getenv('POS_IG_TEST_URL'); if ($test) $url = $test . '?' . (string)parse_url($url, PHP_URL_PATH) . '&' . (string)parse_url($url, PHP_URL_QUERY);
+    [$code, $body] = wa_http($url, null);
+    $j = json_decode((string)$body, true);
+    return [$code, is_array($j) ? $j : null, (string)$body];
+}
+function ig_sync(bool $force = false): array {
+    $token = trim((string)setting('web_ig_token', ''));
+    if ($token === '') return ['ok' => false, 'error' => 'Token Instagram belum diisi.'];
+    if (!$force && time() - (int)setting('web_ig_fetched', '0') < 6 * 3600) return ['ok' => true, 'skipped' => true];
+    set_setting('web_ig_fetched', (string)time()); // kunci sederhana: satu pengambilan per 6 jam walau gagal
+    // perbarui token sebelum 60 hari habis
+    if (time() - (int)setting('web_ig_refreshed', '0') > 20 * 86400) {
+        [$c, $j] = ig_http('https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=' . rawurlencode($token));
+        if ($c === 200 && !empty($j['access_token'])) { $token = (string)$j['access_token']; set_setting('web_ig_token', $token); set_setting('web_ig_refreshed', (string)time()); }
+    }
+    [$c, $j, $raw] = ig_http('https://graph.instagram.com/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp&limit=60&access_token=' . rawurlencode($token));
+    if ($c !== 200 || !isset($j['data'])) {
+        $msg = (string)($j['error']['message'] ?? ($c ? 'HTTP ' . $c : $raw));
+        set_setting('web_ig_status', json_encode(['ok' => false, 'at' => now(), 'error' => mb_substr($msg, 0, 300)]));
+        return ['ok' => false, 'error' => 'Instagram menolak: ' . mb_substr($msg, 0, 200)];
+    }
+    $tag = mb_strtolower(trim((string)setting('web_ig_tag', '#testimoni')));
+    $old = json_decode((string)setting('web_ig_cache', '[]'), true) ?: [];
+    $oldImg = []; foreach ($old as $o) $oldImg[$o['id']] = $o['img'] ?? '';
+    $dir = dirname(__DIR__) . '/uploads/katalog/ig'; $keep = []; $out = [];
+    foreach ($j['data'] as $m) {
+        $cap = (string)($m['caption'] ?? '');
+        if ($tag !== '' && mb_strpos(mb_strtolower($cap), $tag) === false) continue;
+        $src = (string)(($m['media_type'] ?? '') === 'VIDEO' ? ($m['thumbnail_url'] ?? '') : ($m['media_url'] ?? ''));
+        $img = $oldImg[$m['id']] ?? '';
+        if (($img === '' || !is_file(dirname(__DIR__) . '/' . $img)) && $src !== '') {
+            [$ic, $bin] = wa_http($src, null);
+            if ($ic === 200) { try { $img = web_save_binary((string)$bin, $dir, 'ig', 'ig-' . preg_replace('~\D~', '', (string)$m['id']), 900); } catch (Throwable $e) { $img = ''; } }
+        }
+        $text = trim(preg_replace('~\s+~u', ' ', preg_replace('~[#@][\p{L}\p{N}_.]+~u', '', $cap)));
+        $out[] = ['id' => (string)$m['id'], 'text' => mb_substr($text, 0, 280), 'link' => (string)($m['permalink'] ?? ''), 'img' => $img, 'ts' => (string)($m['timestamp'] ?? '')];
+        if ($img) $keep[] = $img;
+        if (count($out) >= 12) break;
+    }
+    foreach ($old as $o) if (!empty($o['img']) && !in_array($o['img'], $keep, true) && strpos($o['img'], 'uploads/katalog/ig/') === 0) @unlink(dirname(__DIR__) . '/' . $o['img']);
+    set_setting('web_ig_cache', json_encode($out, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    set_setting('web_ig_status', json_encode(['ok' => true, 'at' => now(), 'count' => count($out)]));
+    return ['ok' => true, 'count' => count($out)];
+}
+function ig_action(array $in): array {
+    need_admin();
+    $r = ig_sync(true);
+    if (!$r['ok']) fail($r['error']);
+    return $r + ['items' => json_decode((string)setting('web_ig_cache', '[]'), true) ?: []];
+}
+
 function gen_invoice(): string {
     for ($i = 0; $i < 10; $i++) {
         $inv = 'INV' . date('ymd') . '-' . random_int(1000, 9999);
@@ -1563,13 +1676,17 @@ try {
             need_admin(); $out = []; foreach (all('SELECT `key`, value FROM settings') as $r) $out[$r['key']] = $r['value']; $out['_my_ip'] = client_ip();
             unset($out['biteship_api_key']);
             unset($out['push_vapid_private'], $out['reject_secret']);
-            foreach (['wa_token'] as $sk) { $tk = (string)($out[$sk] ?? ''); $out[$sk] = $tk === '' ? '' : str_repeat('•', 8) . substr($tk, -4); }
+            unset($out['web_ig_cache']);
+            foreach (['wa_token', 'web_ig_token'] as $sk) { $tk = (string)($out[$sk] ?? ''); $out[$sk] = $tk === '' ? '' : str_repeat('•', 8) . substr($tk, -4); }
             break;
         }
         case 'settings_save': {
             need_admin();
             $allowed = ['store_name', 'supervisor_pin', 'points_per_amount', 'member_discount_percent', 'member_offer_threshold', 'receipt_address', 'receipt_phone', 'receipt_footer1', 'receipt_footer2', 'work_schedule', 'store_network', 'fee_presets', 'qris_payload', 'sales_channels', 'size_sets', 'return_days', 'wa_enabled', 'wa_provider', 'wa_token', 'wa_targets', 'wa_min_total', 'wa_items', 'wa_daily', 'wa_retur', 'push_enabled',
-                'web_tagline', 'web_about', 'web_address', 'web_city', 'web_maps', 'web_wa', 'web_instagram', 'web_open', 'web_close', 'web_days', 'web_faq', 'web_testimonials'];
+                'web_tagline', 'web_about', 'web_address', 'web_city', 'web_maps', 'web_wa', 'web_instagram', 'web_open', 'web_close', 'web_days', 'web_faq', 'web_testimonials', 'web_ig_token', 'web_ig_tag'];
+            if (isset($in['values']['web_ig_token']) && (strpos((string)$in['values']['web_ig_token'], '•') !== false)) unset($in['values']['web_ig_token']);
+            if (isset($in['values']['web_ig_token'])) { $in['values']['web_ig_token'] = trim((string)$in['values']['web_ig_token']); set_setting('web_ig_refreshed', (string)time()); set_setting('web_ig_fetched', '0'); }
+            if (isset($in['values']['web_ig_tag'])) { $tg = trim((string)$in['values']['web_ig_tag']); $in['values']['web_ig_tag'] = $tg === '' ? '' : '#' . ltrim($tg, '#'); set_setting('web_ig_fetched', '0'); }
             if (isset($in['values']['wa_token']) && (strpos((string)$in['values']['wa_token'], '•') !== false)) unset($in['values']['wa_token']); // token tersamar = tidak diubah
             if (isset($in['values']['wa_provider']) && !in_array($in['values']['wa_provider'], ['fonnte', 'callmebot'], true)) fail('Layanan WhatsApp tidak dikenal.');
             if (isset($in['values']['qris_payload'])) { $qp = trim((string)$in['values']['qris_payload']); if ($qp !== '' && (strpos($qp, '000201') !== 0 || strlen($qp) > 1000)) fail('Kode QRIS tidak valid.'); $in['values']['qris_payload'] = $qp; }
@@ -1604,6 +1721,9 @@ try {
         case 'reject_set_discount': $out = reject_set_discount($in); break;
         case 'catalog_save': $out = catalog_save($in); break;
         case 'catalog_photo': $out = catalog_photo($in); break;
+        case 'testi_photo': $out = testi_photo($in); break;
+        case 'web_store_photo': $out = web_store_photo($in); break;
+        case 'ig_sync': $out = ig_action($in); break;
         case 'report_members': $out = report_members($in); break;
         case 'report_commission': $out = report_commission($in); break;
         case 'tx_delete': $out = tx_delete($in); break;

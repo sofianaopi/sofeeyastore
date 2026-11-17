@@ -98,6 +98,7 @@ const App = {
           <div class="login-links">
             <a href="absen.html">${icon('finger')}<div>Absen pegawai<span>Absen datang & pulang dari WiFi toko</span></div></a>
             <a href="cek-stok.html">${icon('clipboard')}<div>Cek stok barang<span>Untuk petugas yang diberi akses</span></div></a>
+            <a href="update-gambar.html">${icon('camera')}<div>Update gambar produk<span>Untuk pegawai: foto barang untuk website</span></div></a>
             <a href="katalog/">${icon('produk')}<div>Katalog &amp; harga<span>Untuk pembeli: lihat koleksi dan pesan via WhatsApp</span></div></a>
           </div>
         </form>

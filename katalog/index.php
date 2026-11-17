@@ -42,6 +42,7 @@ $S = [
     'faq'       => setting_s('web_faq', ''),
     'testi'     => setting_s('web_testimonials', ''),
     'ppa'       => max(1, (int)setting_s('points_per_amount', '1000')),
+    'storepic'  => setting_s('web_store_photo', ''),
 ];
 $DAYS = [1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu', 7 => 'Minggu'];
 $SCHEMA_DAYS = [1 => 'Monday', 2 => 'Tuesday', 3 => 'Wednesday', 4 => 'Thursday', 5 => 'Friday', 6 => 'Saturday', 7 => 'Sunday'];
@@ -173,6 +174,11 @@ if (!$faq) $faq = [
 $testi = [];
 foreach (preg_split('~\r?\n~', $S['testi']) as $line) { $pp = array_map('trim', explode('|', $line)); if (count($pp) >= 2 && $pp[0] !== '' && $pp[1] !== '') $testi[] = ['name' => $pp[0], 'text' => $pp[1], 'src' => $pp[2] ?? '']; }
 
+// tangkapan layar testimoni (diunggah admin) & postingan Instagram bertagar testimoni (diambil otomatis)
+$shots = array_values(array_filter(testi_shots(), fn($f) => is_file(dirname(__DIR__) . '/' . $f)));
+$igPosts = array_values(array_filter(json_decode((string)setting('web_ig_cache', '[]'), true) ?: [], fn($p) => is_array($p) && !empty($p['link'])));
+$hasTesti = $testi || $shots || $igPosts;
+
 // ---------------------------------------------------------------- meta & schema
 if ($item) {
     $title = $item['title'] . ' – ' . ($item['min'] === $item['max'] ? rp($item['min']) : 'mulai ' . rp($item['min'])) . ' | ' . $S['name'] . ' ' . $S['city'];
@@ -185,7 +191,8 @@ if ($item) {
     $desc = mb_substr('Toko baju wanita di ' . $S['address'] . ': ' . $catList . '. Lihat katalog & harga terbaru, promo hari ini, lalu pesan via WhatsApp atau datang ke toko. ' . $hoursText . '.', 0, 158);
     $canon = $ABS;
     $ogImg = '';
-    foreach ($items as $it) if ($it['pics']) { $ogImg = $ORIGIN . img_url($it['pics'][0]); break; }
+    if ($S['storepic'] !== '' && is_file(dirname(__DIR__) . '/' . $S['storepic'])) $ogImg = $ORIGIN . img_url($S['storepic']);
+    else foreach ($items as $it) if ($it['pics']) { $ogImg = $ORIGIN . img_url($it['pics'][0]); break; }
 }
 $store = ['@type' => 'ClothingStore', '@id' => $ABS . '#toko', 'name' => $S['name'], 'url' => $ABS, 'description' => $S['tagline'],
     'address' => ['@type' => 'PostalAddress', 'streetAddress' => $S['address'], 'addressLocality' => $S['city'], 'addressRegion' => 'Sulawesi Tenggara', 'addressCountry' => 'ID'],
@@ -286,7 +293,13 @@ h1{font:600 clamp(38px,5.6vw,64px)/1.04 var(--serif);letter-spacing:-.022em;marg
 @media(prefers-reduced-motion:no-preference){.hang{animation:ayun 2.6s cubic-bezier(.3,.6,.4,1) both}.hang:nth-child(2){animation-delay:.12s}.hang:nth-child(3){animation-delay:.24s}
 @keyframes ayun{0%{transform:rotate(7deg)}25%{transform:rotate(-4deg)}50%{transform:rotate(2deg)}75%{transform:rotate(-1deg)}100%{transform:rotate(0)}}}
 @media(max-width:860px){.hero .wrap{grid-template-columns:1fr;gap:18px}.hero{padding-top:6px}.rail{order:-1}.rack{justify-content:flex-start;overflow-x:auto;padding:0 4px 10px;scrollbar-width:none}.hang{flex:0 0 42%}.hang .tag{right:4px}}
-/* promo: label kertas di atas rel */
+/* foto toko (bila belum ada foto barang) */
+.storefront{position:relative;border-radius:46% 46% 24px 24px/30% 30% 24px 24px;overflow:hidden;aspect-ratio:4/4.4;background:var(--persik);box-shadow:0 22px 40px -26px rgba(52,23,47,.55)}
+.storefront img{width:100%;height:100%;object-fit:cover}
+.storefront .tag{position:absolute;left:18px;bottom:20px;transform:rotate(-4deg);font-size:15px}
+@media(max-width:860px){.storefront{order:-1;aspect-ratio:4/3.4}}
+/* penawaran */
+.offer-sec{padding-top:8px}
 .promos{display:flex;gap:14px;overflow-x:auto;padding:8px 2px 4px;scrollbar-width:none}
 .promo{flex:none;display:flex;align-items:baseline;gap:10px;background:var(--mentega);border-radius:12px;padding:12px 16px}
 .promo b{font:600 19px/1.2 var(--serif)}.promo span{font-size:14px;color:var(--terong-2)}
@@ -322,10 +335,15 @@ h2{font:600 clamp(28px,3.6vw,42px)/1.12 var(--serif);letter-spacing:-.015em;marg
 .why{display:grid;grid-template-columns:repeat(3,1fr);gap:30px;margin-top:22px}
 .why b{display:block;font:600 22px/1.25 var(--serif);margin-bottom:8px;padding-top:14px;border-top:3px solid var(--terong)}
 .why p{margin:0;color:var(--terong-2)}
-.quotes{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;margin-top:22px}
-.quotes figure{margin:0;background:var(--kertas);border-radius:22px;padding:24px}
-.quotes blockquote{margin:0 0 14px;font:400 18px/1.55 var(--serif)}
-.quotes figcaption{font-weight:700;font-size:15px}.quotes figcaption span{display:block;font-weight:500;color:var(--terong-3);font-size:13px}
+.testi{columns:4 230px;column-gap:18px;margin-top:22px}
+.testi>*{break-inside:avoid;display:block;margin:0 0 18px;background:var(--kertas);border-radius:18px;overflow:hidden;text-decoration:none;box-shadow:0 3px 0 rgba(52,23,47,.08)}
+.t-shot{padding:8px;background:var(--kertas)}.t-shot img{width:100%;height:auto;border-radius:12px}
+.t-ig img{width:100%;height:auto;aspect-ratio:1/1;object-fit:cover}
+.t-cap{display:block;padding:14px 16px 4px;font:400 16px/1.5 var(--serif)}
+.t-src{display:block;padding:8px 16px 14px;font-size:13px;font-weight:700;color:var(--raspberry)}
+.t-quote{padding:22px}.t-quote blockquote{margin:0 0 14px;font:400 18px/1.55 var(--serif)}
+.t-quote figcaption{font-weight:700;font-size:15px}.t-quote figcaption span{display:block;font-weight:500;color:var(--terong-3);font-size:13px}
+@media(max-width:560px){.testi{columns:2 150px;column-gap:12px}.testi>*{margin-bottom:12px}}
 @media(max-width:860px){.steps,.why{grid-template-columns:1fr}}
 /* info toko */
 #lokasi{background:var(--persik)}
@@ -368,7 +386,7 @@ footer small{display:block;margin-top:16px;color:#C3A3B6}
 <a class="skip" href="#isi">Langsung ke isi</a>
 <header class="top"><div class="wrap">
   <a class="brand" href="<?= h($BASE) ?>"><?= h($S['name']) ?><small>Toko baju wanita, <?= h($S['city']) ?></small></a>
-  <nav class="nav" aria-label="Menu"><a href="<?= h($BASE) ?>#katalog">Katalog</a><a href="<?= h($BASE) ?>#cara-pesan">Cara pesan</a><a href="<?= h($BASE) ?>#lokasi">Lokasi</a><a href="<?= h($BASE) ?>#tanya">Tanya jawab</a></nav>
+  <nav class="nav" aria-label="Menu"><a href="<?= h($BASE) ?>#katalog">Katalog</a><?php if ($autoPromos): ?><a href="<?= h($BASE) ?>#penawaran">Promo</a><?php endif; ?><a href="<?= h($BASE) ?>#cara-pesan">Cara pesan</a><a href="<?= h($BASE) ?>#lokasi">Lokasi</a><a href="<?= h($BASE) ?>#tanya">Tanya jawab</a></nav>
   <?php if ($waHello): ?><a class="btn wa" href="<?= h($waHello) ?>" rel="nofollow noopener" target="_blank"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2c-1.6 0-3.1-.4-4.4-1.2l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1-.7-.3-1.4-.7-2-1.3-.6-.5-1-1.1-1.4-1.8-.1-.2 0-.4.1-.5l.4-.4.3-.4v-.5l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.1-.7.3-.8.8-1.1 1.9-.9 3 .3 1.2.9 2.3 1.7 3.2 1.4 1.6 3.2 2.7 5.2 3.1.8.1 1.6 0 2.3-.4.4-.3.7-.7.8-1.2.1-.3.1-.6 0-.8l-.3-.2Z"/></svg>Chat WhatsApp</a><?php endif; ?>
 </div></header>
 <main id="isi">
@@ -404,15 +422,19 @@ footer small{display:block;margin-top:16px;color:#C3A3B6}
   <div class="awning" aria-hidden="true"></div>
   <div class="hero"><div class="wrap">
     <div>
-      <p class="kicker"><span class="dot<?= $open ? '' : ' off' ?>"></span><span><?= $open ? 'Sedang buka sampai ' . h($S['close']) : 'Buka ' . h(days_text($openDays, $DAYS)) . ' ' . h($S['open']) ?>, <?= h($S['address']) ?></span></p>
+      <p class="kicker"><span class="dot<?= $open ? '' : ' off' ?>"></span><span><?= $open ? 'Sedang buka sampai ' . h($S['close']) : 'Sedang tutup, buka ' . h(str_replace('Setiap hari', 'setiap hari', days_text($openDays, $DAYS))) . ' pukul ' . h($S['open']) ?>, <?= h($S['address']) ?></span></p>
       <h1>Toko baju wanita di <?= h($S['city']) ?> untuk kerja dan sehari-hari</h1>
       <p class="lead"><?= h($S['tagline']) ?></p>
-      <div class="cta"><a class="btn wa" href="#katalog">Lihat katalog &amp; harga</a><a class="btn" href="<?= h($mapsLink) ?>" target="_blank" rel="noopener">Petunjuk arah</a></div>
+      <div class="cta"><a class="btn wa" href="#katalog">Lihat katalog &amp; harga</a><?php if ($waHello): ?><a class="btn" href="<?= h($waHello) ?>" target="_blank" rel="nofollow noopener">Chat WhatsApp</a><?php else: ?><a class="btn" href="<?= h($mapsLink) ?>" target="_blank" rel="noopener">Petunjuk arah</a><?php endif; ?></div>
       <ul class="facts"><li><b><?= count($items) ?></b> model tersedia</li><li><?= h($hoursText) ?></li><li>Ambil di toko, antar, atau kirim</li></ul>
     </div>
+    <?php $heroPics = array_values(array_filter($items, fn($i) => $i['pics'])); $storePic = $S['storepic'] !== '' && is_file(dirname(__DIR__) . '/' . $S['storepic']) ? $S['storepic'] : ''; ?>
+    <?php if (count($heroPics) < 2 && $storePic): ?>
+    <div class="storefront"><?= img_tag($storePic, 'Toko ' . $S['name'] . ' di ' . $S['address'], '', false) ?><?php if ($items): ?><span class="tag">Koleksi mulai <?= h(rp(min(array_column($items, 'min')))) ?></span><?php endif; ?></div>
+    <?php else: ?>
     <div class="rail">
       <div class="rack">
-      <?php $hero = array_slice(array_values(array_filter($items, fn($i) => $i['pics'])), 0, 3); if (count($hero) < 3) $hero = array_slice(array_merge($hero, array_values(array_filter($items, fn($i) => !$i['pics']))), 0, 3);
+      <?php $hero = array_slice($heroPics, 0, 3); if (count($hero) < 3) $hero = array_slice(array_merge($hero, array_values(array_filter($items, fn($i) => !$i['pics']))), 0, 3);
       foreach ($hero as $k => $it): ?>
         <a class="hang" href="<?= h($BASE . 'p/' . rawurlencode($it['slug'])) ?>" aria-label="<?= h($it['title'] . ', ' . rp($it['min'])) ?>">
           <svg class="hook" viewBox="0 0 30 34" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M15 33V20M15 20c5 0 8-3 8-7.5S19.5 4 15 4s-7 3-7 6.5"/></svg>
@@ -422,9 +444,15 @@ footer small{display:block;margin-top:16px;color:#C3A3B6}
       <?php endforeach; ?>
       </div>
     </div>
+    <?php endif; ?>
   </div></div>
   <?php $showPromos = $autoPromos; if ($showPromos): ?>
-  <div class="wrap"><div class="promos" aria-label="Promo hari ini"><?php foreach ($showPromos as $p): ?><div class="promo"><b><?= h(promo_desc($p)) ?></b><span><?= h($p['name']) ?><?= (float)$p['min_purchase'] > 0 ? ', min. belanja ' . rp($p['min_purchase']) : '' ?><?= $p['end_date'] ? ', sampai ' . date('j/n', strtotime($p['end_date'])) : '' ?></span></div><?php endforeach; ?></div></div>
+  <section id="penawaran" class="offer-sec"><div class="wrap">
+    <h2>Penawaran hari ini</h2>
+    <p class="sub">Promo yang sedang berjalan di toko. Harga di katalog di bawah sudah memakai promo ini.</p>
+    <div class="promos"><?php foreach ($showPromos as $p): ?><div class="promo"><b><?= h(promo_desc($p)) ?></b><span><?= h($p['name']) ?><?= (float)$p['min_purchase'] > 0 ? ', min. belanja ' . rp($p['min_purchase']) : '' ?><?= $p['end_date'] ? ', sampai ' . date('j/n', strtotime($p['end_date'])) : '' ?></span></div><?php endforeach; ?></div>
+    <?php if ($S['wa']): ?><a class="btn wa" style="margin-top:18px" href="<?= h(wa_link($S['wa'], 'Halo ' . $S['name'] . ', saya mau tanya promo yang sedang berjalan.')) ?>" target="_blank" rel="nofollow noopener">Tanya promo via WhatsApp</a><?php endif; ?>
+  </div></section>
   <?php endif; ?>
   <section id="katalog"><div class="wrap">
     <h2>Katalog &amp; harga hari ini</h2>
@@ -449,10 +477,15 @@ footer small{display:block;margin-top:16px;color:#C3A3B6}
       <div><b>Harga sama dengan di toko</b><p>Harga, promo, dan stok di halaman ini terhubung langsung dengan kasir toko, jadi yang kamu lihat sama dengan di rak.</p></div>
     </div>
   </div></section>
-  <?php if ($testi): ?>
+  <?php if ($hasTesti): ?>
   <section id="ulasan"><div class="wrap">
     <h2>Kata pelanggan</h2>
-    <div class="quotes"><?php foreach (array_slice($testi, 0, 6) as $t): ?><figure><blockquote><?= h($t['text']) ?></blockquote><figcaption><?= h($t['name']) ?><?= $t['src'] !== '' ? '<span>' . h($t['src']) . '</span>' : '' ?></figcaption></figure><?php endforeach; ?></div>
+    <?php if ($S['ig']): ?><p class="sub">Testimoni dari pelanggan lewat WhatsApp dan <a href="https://www.instagram.com/<?= h(rawurlencode($S['ig'])) ?>/" rel="noopener" target="_blank">Instagram @<?= h($S['ig']) ?></a>.</p><?php endif; ?>
+    <div class="testi">
+      <?php foreach (array_slice($igPosts, 0, 8) as $p): ?><a class="t-ig" href="<?= h($p['link']) ?>" rel="noopener" target="_blank"><?php if (!empty($p['img']) && is_file(dirname(__DIR__) . '/' . $p['img'])) echo img_tag($p['img'], 'Testimoni pelanggan di Instagram ' . $S['name']); ?><?php if ($p['text'] !== ''): ?><span class="t-cap"><?= h(mb_strimwidth($p['text'], 0, 160, '…')) ?></span><?php endif; ?><span class="t-src">Lihat di Instagram</span></a><?php endforeach; ?>
+      <?php foreach ($shots as $i => $f): ?><a class="t-shot" href="<?= h(img_url($f)) ?>" target="_blank" rel="noopener"><?= img_tag($f, 'Tangkapan layar testimoni pelanggan ' . ($i + 1)) ?></a><?php endforeach; ?>
+      <?php foreach (array_slice($testi, 0, 6) as $t): ?><figure class="t-quote"><blockquote><?= h($t['text']) ?></blockquote><figcaption><?= h($t['name']) ?><?= $t['src'] !== '' ? '<span>' . h($t['src']) . '</span>' : '' ?></figcaption></figure><?php endforeach; ?>
+    </div>
   </div></section>
   <?php endif; ?>
   <section id="lokasi"><div class="wrap">
@@ -505,3 +538,9 @@ footer small{display:block;margin-top:16px;color:#C3A3B6}
 </script>
 </body>
 </html>
+<?php
+// ambil testimoni Instagram di belakang layar (paling sering 6 jam sekali), setelah halaman terkirim
+if (trim((string)setting('web_ig_token', '')) !== '' && time() - (int)setting('web_ig_fetched', '0') >= 6 * 3600) {
+    if (function_exists('litespeed_finish_request')) litespeed_finish_request(); elseif (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+    try { ig_sync(false); } catch (Throwable $e) { /* dicoba lagi nanti */ }
+}

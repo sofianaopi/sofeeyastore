@@ -44,7 +44,16 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
-## Website katalog untuk Google (versi 26–28)
+## Website katalog untuk Google (versi 26–31)
+
+Versi 31 — 8 unsur landing page: headline, visual utama (foto barang atau **foto toko** di Info toko), keunggulan, produk, testimoni, harga & **Penawaran hari ini** (bagian promo + tombol tanya promo via WhatsApp), tombol WhatsApp, kontak & lokasi. Panel **Kelengkapan landing page** di menu Katalog website menunjukkan unsur yang belum lengkap beserta tombol *Lengkapi*.
+
+Versi 30 — **Halaman pegawai untuk foto produk**: `https://sofeeyastore.id/updategambar` (juga `update-gambar.html`). Pegawai masuk dengan akun kasirnya, cari barang (nama/barcode), lalu **Ambil foto** (kamera HP langsung) atau **Pilih dari galeri**; bisa geser urutan & hapus. Daftar bawaan menampilkan barang yang ada stok tapi belum punya foto. Foto langsung tampil di website katalog dan layar kasir. Simpan halaman ini di layar utama HP pegawai (Tambahkan ke layar utama).
+
+Versi 29 — **Testimoni** (Katalog website → tab Testimoni, khusus admin):
+- **Tangkapan layar**: unggah screenshot chat WA / komentar / DM IG (maks. 12), bisa diurutkan & dihapus.
+- **Otomatis dari Instagram**: postingan akun toko yang caption-nya memuat tagar (bawaan `#testimoni`) tampil di website, diperbarui tiap 6 jam; foto disalin ke `uploads/katalog/ig`. Perlu akun IG Bisnis/Kreator + token dari Meta for Developers (langkah ada di tab itu). Token diperbarui otomatis tiap ±20 hari; tombol *Ambil sekarang* untuk mencoba. Story & highlight tidak bisa diambil (batasan Instagram).
+- Bagian "Kata pelanggan" di website baru muncul bila ada salah satu: tangkapan layar, postingan IG bertagar, atau testimoni teks (tab Info toko).
 
 Versi 28: bagian baru **Cara pesan dari rumah** (pilih → pesan via WhatsApp → ambil di toko / antar dalam kota / kirim ke luar kota) dan **Belanja di Sofeeya Store** (harga bersahabat, poin member, harga sama dengan di toko). **Testimoni** diisi admin di Katalog website → Info toko (satu per baris: Nama | Ulasan | Sumber) — hanya ulasan asli yang sudah diizinkan; bagian ini baru muncul setelah diisi. Panduan tampilan ada di DESIGN.md.
 

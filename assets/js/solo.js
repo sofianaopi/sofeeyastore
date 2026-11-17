@@ -1,4 +1,4 @@
-/* Halaman mandiri: Absen pegawai & Cek stok */
+/* Halaman mandiri: Absen pegawai, Cek stok, Update gambar produk */
 'use strict';
 const Solo = {
   settings: {}, user: null,
@@ -12,7 +12,7 @@ const Solo = {
   },
   bindOut(kind) { const b = $('[data-out]'); if (b) b.onclick = async () => { await api('logout').catch(() => {}); this.user = null; this.login(kind); }; },
   login(kind) {
-    const title = kind === 'absen' ? 'Absen pegawai' : 'Cek stok barang';
+    const title = kind === 'absen' ? 'Absen pegawai' : kind === 'gambar' ? 'Update gambar produk' : 'Cek stok barang';
     $('#app').innerHTML = `<div class="solo">${this.header(title, this.settings.store_name || 'Sofeeya Store')}<form class="panel panel-b stack" data-f><p class="muted" style="margin:0">Masuk dengan akun pegawai Anda.</p>${field('Email', 'email', '', { type: 'email', attrs: 'autocomplete="username" required' })}${field('Kata sandi', 'password', '', { type: 'password', attrs: 'autocomplete="current-password" required' })}<button class="btn primary" style="height:46px">Masuk</button></form></div>`;
     $('[data-f]').onsubmit = async (e) => { e.preventDefault(); try { const r = await api('login', formValues(e.target)); this.user = r.user; this.settings = r.settings; this[kind](); } catch (ex) { toastErr(ex); } };
   },
@@ -102,5 +102,77 @@ const Solo = {
     const mine = checks.filter((c) => c.petugas_id === this.user.id).slice(0, 15);
     $('[data-hist]').innerHTML = mine.length ? `<div class="tbl-wrap"><table class="tbl"><tbody>${mine.map((c) => `<tr><td>${fmtDT(c.created)}</td><td class="num">${c.items.length} barang</td><td><span class="chip ${c.status === 'approved' ? 'green' : c.status === 'rejected' ? 'red' : 'amber'}">${c.status === 'approved' ? 'Disetujui' : c.status === 'rejected' ? 'Ditolak' : 'Menunggu'}</span></td><td class="small muted">${esc(c.note)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">Belum ada pengajuan.</p>';
     draw();
+  },
+
+  // ------------------------------------------------------------ UPDATE GAMBAR PRODUK (untuk website katalog & layar kasir)
+  async gambar() {
+    $('#app').innerHTML = `<div class="solo">${this.header('Update gambar produk', this.user.name)}<div class="empty">Memuat barang…</div></div>`;
+    this.bindOut('gambar');
+    let products = [], rows = [];
+    try { [products, rows] = await Promise.all([db.list('products'), db.list('web_catalog', { limit: 5000 })]); } catch (e) { toastErr(e); return; }
+    const keyOf = (p) => (p.model && p.model.trim() ? p.model.trim() : 'id:' + p.id);
+    const rowOf = new Map(rows.map((r) => [r.model_key, r]));
+    const map = new Map();
+    products.forEach((p) => { const k = keyOf(p); if (!map.has(k)) map.set(k, { key: k, name: p.model || p.name, category: p.category, items: [], codes: [] }); const g = map.get(k); g.items.push(p); g.codes.push(p.barcode || ''); });
+    const groups = [...map.values()].map((g) => { const r = rowOf.get(g.key); return { ...g, title: r && r.title ? r.title : g.name, photos: r ? r.photos || [] : [], visible: !!(r && r.visible), stock: g.items.reduce((s, p) => s + Math.max(0, p.stock), 0) }; })
+      .sort((a, b) => (b.visible - a.visible) || (a.photos.length > 0) - (b.photos.length > 0) || (b.stock > 0) - (a.stock > 0) || a.title.localeCompare(b.title));
+    let q = '', f = 'need';
+    const needCount = () => groups.filter((g) => !g.photos.length && g.stock > 0).length;
+    $('#app').innerHTML = `<div class="solo">${this.header('Update gambar produk', this.user.name)}
+      <p class="small muted" style="margin:0 0 12px">Foto tampil di website katalog toko dan di layar kasir. Tips: tempat terang, latar polos, tampak depan dulu, satu warna per foto.</p>
+      <div class="search" style="margin-bottom:10px">${icon('search')}<input class="input" data-q placeholder="Cari nama barang atau barcode…" inputmode="search"></div>
+      <div class="seg" data-f style="margin-bottom:12px">${[['need', 'Belum ada foto'], ['web', 'Di website'], ['all', 'Semua']].map(([k, l]) => `<button data-fv="${k}" class="${k === f ? 'on' : ''}">${l}${k === 'need' ? ` <b data-nc>${needCount()}</b>` : ''}</button>`).join('')}</div>
+      <div class="wc-list" data-list></div></div>`;
+    this.bindOut('gambar');
+    const draw = () => {
+      const lq = q.toLowerCase();
+      const list = groups.filter((g) => (f === 'all' || (f === 'web' && g.visible) || (f === 'need' && !g.photos.length && g.stock > 0)) && (!lq || [g.title, g.name, g.category, ...g.codes].join(' ').toLowerCase().includes(lq)));
+      $('[data-list]').innerHTML = list.length ? list.slice(0, 200).map((g) => `<button class="wc gb-row" data-g="${esc(g.key)}">
+        <div class="wc-pic">${g.photos[0] ? `<img src="${esc(g.photos[0])}" alt="" loading="lazy">` : `<span>${icon('camera')}</span>`}${g.photos.length ? `<i>${g.photos.length}</i>` : ''}</div>
+        <div class="wc-b"><b>${esc(g.title)}</b><div class="small muted">${esc(g.category || 'Tanpa kategori')} · ${g.items.length} varian · stok ${fmtNum(g.stock)}</div>
+        <div class="small">${g.visible ? '<span class="chip green">Di website</span>' : '<span class="chip">Belum di website</span>'} ${g.photos.length ? '' : '<span class="chip amber">Belum ada foto</span>'}</div></div>
+        <span class="muted">${icon('camera')}</span></button>`).join('')
+        : `<div class="empty">${f === 'need' ? 'Semua barang yang ada stoknya sudah punya foto.' : 'Tidak ada barang yang cocok.'}</div>`;
+      const nc = $('[data-nc]'); if (nc) nc.textContent = needCount();
+    };
+    draw();
+    $('[data-q]').oninput = debounce((e) => { q = e.target.value.trim(); draw(); }, 150);
+    $('[data-f]').onclick = (e) => { const b = e.target.closest('[data-fv]'); if (!b) return; f = b.dataset.fv; $$('[data-fv]').forEach((x) => x.classList.toggle('on', x === b)); draw(); };
+    $('[data-list]').onclick = (e) => { const b = e.target.closest('[data-g]'); if (b) this.gambarModal(groups.find((g) => g.key === b.dataset.g), draw); };
+  },
+  gambarModal(g, redraw) {
+    const vars = g.items.map((p) => [p.color, p.size].filter(Boolean).join(' ')).filter(Boolean);
+    const m = modal({ title: g.title, size: 'wide', body: `<div class="stack">
+      <p class="small muted" style="margin:0">${esc(g.category || '')}${vars.length ? ' · ' + esc([...new Set(g.items.map((p) => p.color).filter(Boolean))].join(', ')) : ''} · maks. 8 foto. Foto pertama jadi foto utama.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap">
+        <label class="btn primary bigbtn" style="flex:1;min-width:150px">${icon('camera')}Ambil foto<input type="file" accept="image/*" capture="environment" data-cam hidden></label>
+        <label class="btn bigbtn" style="flex:1;min-width:150px">${icon('box')}Pilih dari galeri<input type="file" accept="image/*" multiple data-gal hidden></label>
+      </div>
+      <p class="small" data-prog style="margin:0;min-height:20px"></p>
+      <div class="wp-grid" data-pg></div></div>`, foot: '<button class="btn primary" data-x>Selesai</button>' });
+    const draw = () => {
+      m.$('[data-pg]').innerHTML = g.photos.length ? g.photos.map((f, i) => `<div class="wp"><img src="${esc(f)}" alt="Foto ${i + 1}">${i === 0 ? '<span class="chip gold">Utama</span>' : ''}<div class="wp-a">
+        <button class="btn sm icon" data-mv="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Jadikan lebih awal">${icon('arrowleft')}</button>
+        <button class="btn sm icon danger" data-rm="${i}" aria-label="Hapus foto">${icon('trash')}</button></div></div>`).join('') : `<div class="empty" style="grid-column:1/-1">${icon('camera')}Belum ada foto.</div>`;
+    };
+    const save = (row) => { g.photos = row.photos || []; draw(); redraw(); };
+    draw();
+    m.$('[data-pg]').onclick = async (e) => {
+      const mv = e.target.closest('[data-mv]'), rm = e.target.closest('[data-rm]');
+      try {
+        if (mv) { const i = +mv.dataset.mv, a = [...g.photos]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; save(await api('catalog_photo', { model_key: g.key, op: 'order', photos: a })); }
+        if (rm && await confirmBox('Hapus foto ini?', 'Foto dihapus dari website dan layar kasir.', 'Hapus')) save(await api('catalog_photo', { model_key: g.key, op: 'remove', photo: g.photos[+rm.dataset.rm] }));
+      } catch (ex) { toastErr(ex); }
+    };
+    const upload = async (e) => {
+      const files = [...e.target.files].slice(0, Math.max(0, 8 - g.photos.length)); e.target.value = '';
+      if (!files.length) { toast('Maksimal 8 foto', 'Hapus foto lama dulu.', 'err'); return; }
+      for (let i = 0; i < files.length; i++) {
+        m.$('[data-prog]').textContent = `Mengunggah foto ${i + 1} dari ${files.length}…`;
+        try { save(await api('catalog_photo', { model_key: g.key, op: 'add', data: await resizeImage(files[i], 1400, 0.85) })); } catch (ex) { toastErr(ex); break; }
+      }
+      m.$('[data-prog]').textContent = ''; toast('Foto tersimpan', g.title, 'ok');
+    };
+    m.$('[data-cam]').onchange = upload; m.$('[data-gal]').onchange = upload;
   },
 };

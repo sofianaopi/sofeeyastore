@@ -1552,10 +1552,10 @@ V.website = async (page) => {
   const admin = App.isAdmin();
   const webUrl = new URL('katalog/', location.href.split('#')[0]).href;
   page.innerHTML = head('Katalog website', admin ? 'Pilih barang yang tampil di website, unggah foto, dan atur info toko. Harga, promo, dan stok mengikuti kasir secara otomatis.' : 'Unggah foto barang untuk website toko. Harga, promo, dan stok mengikuti kasir secara otomatis.',
-    `<a class="btn" href="${esc(webUrl)}" target="_blank" rel="noopener">${icon('link')}Buka website</a>`) +
-    `<div style="margin-bottom:14px">${tabs([['produk', 'Barang di website'], ...(admin ? [['info', 'Info toko']] : [])], 'produk')}</div><div data-body></div>`;
+    `<a class="btn" href="update-gambar.html" title="Halaman khusus pegawai untuk memotret barang">${icon('camera')}Update gambar</a><a class="btn" href="${esc(webUrl)}" target="_blank" rel="noopener">${icon('link')}Buka website</a>`) +
+    `<div style="margin-bottom:14px">${tabs([['produk', 'Barang di website'], ...(admin ? [['testi', 'Testimoni'], ['info', 'Info toko']] : [])], 'produk')}</div><div data-body></div>`;
   const body = $('[data-body]', page);
-  bindTabs(page, (t) => (t === 'info' ? drawInfo() : drawProducts()));
+  bindTabs(page, (t) => (t === 'info' ? drawInfo() : t === 'testi' ? drawTesti() : drawProducts()));
   const keyOf = (p) => (p.model && p.model.trim() ? p.model.trim() : 'id:' + p.id);
   let filter = 'all', q = '';
 
@@ -1569,8 +1569,8 @@ V.website = async (page) => {
 
   async function drawProducts() {
     body.innerHTML = '<div class="empty">Memuat…</div>';
-    let products = [], rows = [], promos = [];
-    try { [products, rows, promos] = await Promise.all([db.list('products'), db.list('web_catalog', { limit: 5000 }), db.list('promos', { where: { active: 1 } })]); } catch (e) { toastErr(e); return; }
+    let products = [], rows = [], promos = [], cfg = {};
+    try { [products, rows, promos, cfg] = await Promise.all([db.list('products'), db.list('web_catalog', { limit: 5000 }), db.list('promos', { where: { active: 1 } }), admin ? api('settings_all') : Promise.resolve({})]); } catch (e) { toastErr(e); return; }
     promos = promos.filter(Promo.activeToday).filter(Promo.isAuto);
     const byKey = new Map();
     products.forEach((p) => { const k = keyOf(p); if (!byKey.has(k)) byKey.set(k, { key: k, name: p.model || p.name, category: p.category, items: [] }); byKey.get(k).items.push(p); });
@@ -1594,7 +1594,27 @@ V.website = async (page) => {
           ${admin ? `<button class="btn sm" data-edit="${esc(g.key)}">${icon('edit')}Edit</button>${g.visible && g.row ? `<a class="btn sm ghost" href="${esc(webUrl + 'p/' + g.row.slug)}" target="_blank" rel="noopener" title="Lihat di website">${icon('link')}</a>` : ''}` : ''}
         </div></div>`).join('') : emptyState('Tidak ada barang yang cocok.');
     };
-    body.innerHTML = `<div class="stats">${stat('Tampil di website', fmtNum(shown) + ' barang', 'yang sedang ada stok', 'hero')}${stat('Belum ada foto', fmtNum(noPic), 'dari barang yang tampil')}${stat('Promo otomatis', fmtNum(promos.length), 'ikut tampil di website')}</div>
+    // kelengkapan landing page (8 unsur halaman yang meyakinkan pembeli)
+    let checklist = '';
+    if (admin) {
+      let shots = [], igst = null; try { shots = JSON.parse(cfg.web_testi_shots || '[]'); igst = JSON.parse(cfg.web_ig_status || 'null'); } catch (e) { /* abaikan */ }
+      const live = groups.filter((g) => g.visible && g.stock > 0), withPic = live.filter((g) => g.photos.length);
+      const testiN = shots.length + (igst && igst.ok ? igst.count : 0) + String(cfg.web_testimonials || '').split('\n').filter((l) => l.includes('|')).length;
+      const items = [
+        ['Headline', true, cfg.web_tagline ? 'Kalimat pembuka sudah diisi.' : 'Memakai kalimat bawaan; bisa diganti di Info toko.', 'info'],
+        ['Visual utama', withPic.length > 0 || !!cfg.web_store_photo, withPic.length ? `${withPic.length} barang di website sudah berfoto.` : cfg.web_store_photo ? 'Memakai foto toko.' : 'Belum ada foto barang/toko. Unggah lewat Update gambar atau foto toko di Info toko.', withPic.length || cfg.web_store_photo ? '' : 'foto'],
+        ['Keunggulan', true, 'Otomatis: harga bersahabat, poin member, harga sama dengan toko.', ''],
+        ['Produk', live.length > 0, live.length ? `${live.length} barang tampil.` : 'Belum ada barang yang ditampilkan. Nyalakan "Tampil" di daftar bawah.', ''],
+        ['Testimoni', testiN > 0, testiN ? `${testiN} testimoni.` : 'Belum ada. Tambahkan tangkapan layar atau sambungkan Instagram.', 'testi'],
+        ['Harga & penawaran', true, promos.length ? `Harga otomatis + ${promos.length} promo aktif.` : 'Harga otomatis dari kasir. Belum ada promo aktif.', ''],
+        ['Tombol WhatsApp', !!(cfg.web_wa || cfg.receipt_phone), cfg.web_wa || cfg.receipt_phone ? 'Tombol Chat & Pesan via WhatsApp aktif.' : 'Nomor WhatsApp belum diisi, tombol pesan tidak muncul.', 'info'],
+        ['Kontak & lokasi', !!(cfg.web_address && cfg.web_maps), cfg.web_address && cfg.web_maps ? 'Alamat & link Google Maps lengkap.' : 'Lengkapi alamat dan link Google Maps.', 'info'],
+      ];
+      const done = items.filter((i) => i[1]).length;
+      checklist = `<div class="panel panel-b" style="margin-bottom:14px"><div class="row" style="margin-bottom:8px"><b class="grow">Kelengkapan landing page</b><span class="chip ${done === 8 ? 'green' : 'amber'}">${done}/8 siap</span></div>
+        <div class="lp-check">${items.map(([t, ok, note, go]) => `<div class="${ok ? 'ok' : 'no'}"><span aria-hidden="true">${ok ? icon('check') : '!'}</span><div><b>${t}</b><div class="small muted">${esc(note)}</div></div>${!ok && go ? `<button class="btn sm" data-go="${go}">Lengkapi</button>` : ''}</div>`).join('')}</div></div>`;
+    }
+    body.innerHTML = checklist + `<div class="stats">${stat('Tampil di website', fmtNum(shown) + ' barang', 'yang sedang ada stok', 'hero')}${stat('Belum ada foto', fmtNum(noPic), 'dari barang yang tampil')}${stat('Promo otomatis', fmtNum(promos.length), 'ikut tampil di website')}</div>
       <div class="toolbar"><div class="search grow">${icon('search')}<input class="input" data-q placeholder="Cari barang…" value="${esc(q)}"></div>
       <div class="seg" data-f>${[['all', 'Semua'], ['on', 'Tampil'], ['off', 'Tidak tampil'], ['nopic', 'Belum ada foto']].map(([k, l]) => `<button data-fv="${k}" class="${k === filter ? 'on' : ''}">${l}</button>`).join('')}</div></div>
       ${admin ? '' : '<p class="small muted" style="margin:0 0 10px">Admin yang menentukan barang mana yang tampil di website. Foto bisa diambil langsung dari kamera HP.</p>'}
@@ -1608,6 +1628,10 @@ V.website = async (page) => {
       const g = find(c.dataset.vis);
       try { g.row = await api('catalog_save', { model_key: g.key, visible: c.checked }); g.visible = c.checked; toast(c.checked ? 'Tampil di website' : 'Disembunyikan dari website', g.title, 'ok'); if (c.checked && !g.photos.length) toast('Tambahkan foto', 'Barang dengan foto lebih menarik dan lebih mudah ditemukan di Google.'); draw(); } catch (ex) { c.checked = !c.checked; toastErr(ex); }
     };
+    $$('[data-go]', body).forEach((b) => (b.onclick = () => {
+      if (b.dataset.go === 'foto') { location.href = 'update-gambar.html'; return; }
+      const t = $(`[data-t="${b.dataset.go}"]`, page); if (t) t.click();
+    }));
     $('[data-list]', body).onclick = (e) => {
       const p = e.target.closest('[data-pics]'), ed = e.target.closest('[data-edit]');
       if (p) photoModal(find(p.dataset.pics), draw);
@@ -1661,6 +1685,63 @@ V.website = async (page) => {
     };
   }
 
+  // testimoni: tangkapan layar (admin) + postingan Instagram bertagar (otomatis)
+  async function drawTesti() {
+    body.innerHTML = '<div class="empty">Memuat…</div>';
+    let s = {}; try { s = await api('settings_all'); } catch (e) { toastErr(e); return; }
+    let shots = []; try { shots = JSON.parse(s.web_testi_shots || '[]'); } catch (e) { shots = []; }
+    let st = null; try { st = JSON.parse(s.web_ig_status || 'null'); } catch (e) { st = null; }
+    body.innerHTML = `<div class="stack" style="max-width:900px">
+      <div class="panel panel-b stack">
+        <div><b>Tangkapan layar testimoni</b><p class="small muted" style="margin:4px 0 0">Unggah screenshot chat WhatsApp, komentar, atau DM Instagram dari pelanggan (maks. 12). Tampil di bagian "Kata pelanggan" di website. Pastikan pelanggan tidak keberatan; tutup nomor HP bila perlu.</p></div>
+        <div class="wp-grid" data-shots></div>
+        <label class="btn primary" style="align-self:flex-start">${icon('camera')}Tambah tangkapan layar<input type="file" accept="image/*" multiple data-sfile hidden></label>
+        <p class="small muted" data-sprog style="margin:0"></p>
+      </div>
+      <div class="panel panel-b stack">
+        <div><b>Otomatis dari Instagram</b><p class="small muted" style="margin:4px 0 0">Postingan akun toko yang caption-nya memuat tagar di bawah akan tampil otomatis di website (diperbarui setiap 6 jam). Contoh: repost foto pelanggan dengan caption "Terima kasih Kak … #testimoni".</p></div>
+        <div class="grid2">${field('Tagar testimoni', 'web_ig_tag', s.web_ig_tag || '#testimoni', { placeholder: '#testimoni' })}${field('Token Instagram', 'web_ig_token', s.web_ig_token || '', { placeholder: 'IGAA…', hint: 'Token panjang (60 hari) dari Meta for Developers. Diperbarui otomatis.' })}</div>
+        <div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn primary" data-igsave>Simpan</button><button class="btn" data-igsync>${icon('refresh')}Ambil sekarang</button><span class="small muted grow" data-igst>${st ? (st.ok ? `Terakhir diambil ${esc(fmtDate(st.at))}: ${st.count} postingan` : `Gagal ${esc(fmtDate(st.at))}: ${esc(st.error || '')}`) : 'Belum pernah diambil.'}</span></div>
+        <details class="small"><summary style="cursor:pointer;font-weight:600">Cara mendapatkan token (sekali saja, ±15 menit)</summary><ol style="margin:8px 0 0;padding-left:20px;line-height:1.7">
+          <li>Ubah akun Instagram toko menjadi akun <b>Bisnis</b> atau <b>Kreator</b> (Pengaturan IG → Jenis akun).</li>
+          <li>Buka <b>developers.facebook.com</b>, login, lalu <b>Buat aplikasi</b> → pilih kasus penggunaan <i>Instagram</i> / "Kelola pesan dan konten di Instagram".</li>
+          <li>Di menu <b>Instagram → Penyiapan API dengan login Instagram</b>, tekan <b>Tambahkan akun</b> dan login dengan akun IG toko.</li>
+          <li>Tekan <b>Buat token</b> di samping akun itu, salin tokennya, tempel di kolom <b>Token Instagram</b> di atas, lalu Simpan dan Ambil sekarang.</li>
+        </ol><p class="muted" style="margin:8px 0 0">Aplikasi bisa tetap dalam mode pengembangan karena hanya membaca akun Anda sendiri. Token diperbarui otomatis; bila suatu saat gagal (mis. kata sandi IG diganti), buat token baru dengan langkah 4.</p></details>
+      </div>
+      <p class="small muted" style="margin:0">Testimoni berupa teks bisa diisi di tab Info toko.</p></div>`;
+    const drawShots = () => {
+      $('[data-shots]', body).innerHTML = shots.length ? shots.map((f, i) => `<div class="wp"><img src="${esc(f)}" alt="Testimoni ${i + 1}"><div class="wp-a">
+        <button class="btn sm icon" data-smv="${i}" ${i === 0 ? 'disabled' : ''} aria-label="Geser ke kiri">${icon('arrowleft')}</button>
+        <button class="btn sm icon danger" data-srm="${i}" aria-label="Hapus">${icon('trash')}</button></div></div>`).join('') : `<div class="empty" style="grid-column:1/-1">${icon('camera')}Belum ada tangkapan layar.</div>`;
+    };
+    drawShots();
+    $('[data-shots]', body).onclick = async (e) => {
+      const mv = e.target.closest('[data-smv]'), rm = e.target.closest('[data-srm]');
+      try {
+        if (mv) { const i = +mv.dataset.smv, a = [...shots]; [a[i - 1], a[i]] = [a[i], a[i - 1]]; shots = (await api('testi_photo', { op: 'order', photos: a })).shots; drawShots(); }
+        if (rm && await confirmBox('Hapus tangkapan layar ini?', 'Gambar dihapus dari website.', 'Hapus')) { shots = (await api('testi_photo', { op: 'remove', photo: shots[+rm.dataset.srm] })).shots; drawShots(); }
+      } catch (ex) { toastErr(ex); }
+    };
+    $('[data-sfile]', body).onchange = async (e) => {
+      const files = [...e.target.files].slice(0, Math.max(0, 12 - shots.length)); e.target.value = '';
+      if (!files.length) { toast('Maksimal 12 tangkapan layar', 'Hapus yang lama dulu.', 'err'); return; }
+      for (let i = 0; i < files.length; i++) {
+        $('[data-sprog]', body).textContent = `Mengunggah ${i + 1} dari ${files.length}…`;
+        try { shots = (await api('testi_photo', { op: 'add', data: await resizeImage(files[i], 1400, 0.85) })).shots; drawShots(); } catch (ex) { toastErr(ex); break; }
+      }
+      $('[data-sprog]', body).textContent = ''; toast('Testimoni tersimpan', 'Tampil di website.', 'ok');
+    };
+    const saveIg = async () => { const v = formValues(body.querySelector('.panel:nth-child(2)')); await api('settings_save', { values: { web_ig_tag: v.web_ig_tag, web_ig_token: v.web_ig_token } }); };
+    $('[data-igsave]', body).onclick = async () => { try { await saveIg(); toast('Tersimpan', 'Tekan "Ambil sekarang" untuk mencoba.', 'ok'); } catch (e) { toastErr(e); } };
+    $('[data-igsync]', body).onclick = async (e) => {
+      const b = e.currentTarget; b.disabled = true; $('[data-igst]', body).textContent = 'Mengambil dari Instagram…';
+      try { await saveIg(); const r = await api('ig_sync'); $('[data-igst]', body).textContent = `Berhasil: ${r.count} postingan bertagar ${$('[name=web_ig_tag]', body).value} tampil di website.`; toast('Instagram tersambung', `${r.count} testimoni`, 'ok'); }
+      catch (ex) { $('[data-igst]', body).textContent = ex.message || String(ex); toastErr(ex); }
+      b.disabled = false;
+    };
+  }
+
   async function drawInfo() {
     body.innerHTML = '<div class="empty">Memuat…</div>';
     let s = {}; try { s = await api('settings_all'); } catch (e) { toastErr(e); return; }
@@ -1668,6 +1749,9 @@ V.website = async (page) => {
     const DN = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
     body.innerHTML = `<div class="panel panel-b stack" style="max-width:860px" data-f>
       <p class="small muted" style="margin:0">Info ini tampil di website dan dibaca Google (alamat, jam buka, WhatsApp). Isi selengkap dan setepat mungkin, sama persis dengan profil Google Maps toko.</p>
+      <div class="row" style="gap:14px;align-items:flex-start;flex-wrap:wrap"><div class="wp" style="width:130px;flex:none" data-sp>${s.web_store_photo ? `<img src="${esc(s.web_store_photo)}" alt="Foto toko">` : `<div class="empty" style="padding:30px 6px">${icon('camera')}</div>`}</div>
+        <div class="grow" style="min-width:200px"><b>Foto toko</b><p class="small muted" style="margin:4px 0 8px">Foto etalase/depan toko. Tampil besar di bagian atas website selama foto barang masih sedikit, dan dipakai saat link website dibagikan.</p>
+        <div class="row" style="gap:8px"><label class="btn sm">${icon('camera')}${s.web_store_photo ? 'Ganti foto' : 'Unggah foto'}<input type="file" accept="image/*" data-spf hidden></label>${s.web_store_photo ? '<button class="btn sm danger" type="button" data-spx>Hapus</button>' : ''}</div></div></div>
       ${field('Kalimat pembuka', 'web_tagline', s.web_tagline || '', { placeholder: 'mis. Kemeja kerja, blouse, dan gamis untuk wanita aktif di Kendari.' })}
       <label class="f">Tentang toko<textarea class="input" name="web_about" rows="3" placeholder="Cerita singkat toko, keunggulan, siapa pelanggannya.">${esc(s.web_about || '')}</textarea></label>
       <div class="grid2">${field('Alamat lengkap', 'web_address', s.web_address || s.receipt_address || '', { placeholder: 'Jl. Malaka No. …, Andonohu, Kec. Poasia' })}${field('Kota', 'web_city', s.web_city || 'Kendari')}</div>
@@ -1679,6 +1763,8 @@ V.website = async (page) => {
       <label class="f">Testimoni pelanggan (opsional)<textarea class="input" name="web_testimonials" rows="4" placeholder="Bu Rina | Bahannya adem, dipakai ke kantor nyaman. | Ulasan Google Maps">${esc(s.web_testimonials || '')}</textarea><span class="hint">Hanya ulasan asli yang sudah diizinkan pelanggan. Satu per baris: Nama | Ulasan | Sumber. Bagian testimoni di website baru muncul setelah diisi.</span></label>
       <div class="row"><span class="grow"></span><button class="btn primary" data-save>Simpan info toko</button></div></div>`;
     const f = $('[data-f]', body);
+    $('[data-spf]', f).onchange = async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return; try { await api('web_store_photo', { op: 'add', data: await resizeImage(file, 1800, 0.85) }); toast('Foto toko tersimpan', '', 'ok'); drawInfo(); } catch (ex) { toastErr(ex); } };
+    const spx = $('[data-spx]', f); if (spx) spx.onclick = async () => { if (await confirmBox('Hapus foto toko?', '', 'Hapus')) { try { await api('web_store_photo', { op: 'remove' }); drawInfo(); } catch (ex) { toastErr(ex); } } };
     $('[data-days]', f).onclick = (e) => { const b = e.target.closest('[data-dv]'); if (b) b.classList.toggle('on'); };
     $('[data-save]', f).onclick = async () => {
       const v = formValues(f); v.web_days = $$('[data-dv].on', f).map((b) => b.dataset.dv).join(',');
