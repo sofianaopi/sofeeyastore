@@ -10,19 +10,16 @@ const App = {
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', can: (u) => u.role === 'admin' },
     { id: 'laporan', label: 'Laporan keuangan', icon: 'laporan', can: () => true },
     { id: 'tutup', label: 'Tutup kasir', icon: 'clipboard', can: () => true },
-    { id: 'pengiriman', label: 'Pengiriman', icon: 'truck', can: () => true },
     { id: 'qris', label: 'QRIS', icon: 'qr', can: (u) => u.role === 'admin' },
-    { id: 'produk', label: 'Produk & stok', icon: 'produk', can: (u) => u.role === 'admin' },
-    { id: 'promo', label: 'Promo', icon: 'promo', can: (u) => u.promo_access },
-    { id: 'website', label: 'Katalog website', icon: 'link', can: () => true },
-    { id: 'member', label: 'Member', icon: 'member', can: () => true },
-    { id: 'sales', label: 'Sales & komisi', icon: 'sales', can: (u) => u.role === 'admin' },
+    { id: 'produk', label: 'Produk', icon: 'produk', can: () => true },
+    { id: 'marketing', label: 'Marketing', icon: 'promo', can: () => true },
     { sep: true },
-    { id: 'pengaturan', label: 'Pengaturan toko', icon: 'setting', can: (u) => u.role === 'admin' },
-    { id: 'pengguna', label: 'Pengguna', icon: 'users', can: (u) => u.role === 'admin' },
-    { id: 'printer', label: 'Printer', icon: 'printer', can: () => true },
+    { id: 'pengguna', label: 'Pengguna', icon: 'users', can: () => true },
+    { id: 'pengaturan', label: 'Pengaturan', icon: 'setting', can: () => true },
     { id: 'akun', label: 'Akun saya', icon: 'akun', can: () => true },
   ],
+  // alamat lama → menu baru
+  ALIAS: { pengiriman: 'produk/pengiriman', promo: 'marketing/promo', website: 'marketing/katalog', member: 'marketing/member', sales: 'marketing/sales', printer: 'pengaturan/printer' },
   isAdmin() { return this.user && this.user.role === 'admin'; },
 
   // ---- tata letak: otomatis / potret / lanskap (disimpan per perangkat)
@@ -47,6 +44,37 @@ const App = {
     const close = (e) => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', close, true); } };
     setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
     m.onclick = (e) => { const b = e.target.closest('[data-lay]'); if (!b) return; this.setLayout(b.dataset.lay); m.remove(); toast('Tampilan: ' + b.textContent.trim()); };
+  },
+  // ---- muat ulang: perangkat ini, atau (admin) semua perangkat
+  async refreshMenu(anchor) {
+    if (!this.isAdmin()) { location.reload(); return; }
+    $$('.laymenu').forEach((x) => x.remove());
+    const r = anchor.getBoundingClientRect(), m = document.createElement('div'); m.className = 'laymenu'; m.style.position = 'fixed';
+    m.innerHTML = `<button data-r="me">${icon('refresh')}Muat ulang perangkat ini</button><button data-r="all">${icon('refresh')}Refresh semua perangkat</button>`;
+    m.style.top = Math.min(window.innerHeight - 110, r.bottom + 6) + 'px'; m.style.left = Math.max(8, Math.min(window.innerWidth - 240, r.right - 230)) + 'px';
+    document.body.appendChild(m);
+    const close = (e) => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', close, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+    m.onclick = async (e) => {
+      const b = e.target.closest('[data-r]'); if (!b) return; m.remove();
+      if (b.dataset.r === 'me') { location.reload(); return; }
+      if (!(await confirmBox('Refresh semua perangkat?', 'Semua perangkat kasir yang sedang terbuka akan memuat ulang dalam ±20 detik. Gunakan setelah mengubah harga atau promo.', 'Kirim refresh', false))) return;
+      try { const res = await api('broadcast_refresh'); this.sig = res.id; toast('Perintah refresh terkirim', '', 'ok'); } catch (ex) { toastErr(ex); }
+    };
+  },
+  // HP: satu tombol "lainnya" berisi muat ulang, pasang aplikasi, tampilan
+  moreMenu(anchor) {
+    $$('.laymenu').forEach((x) => x.remove());
+    const r = anchor.getBoundingClientRect(), m = document.createElement('div'); m.className = 'laymenu'; m.style.position = 'fixed';
+    m.innerHTML = `<button data-k="refresh">${icon('refresh')}${this.isAdmin() ? 'Muat ulang / refresh semua' : 'Muat ulang aplikasi'}</button>${this.isStandalone() ? '' : `<button data-k="install">${icon('download')}Pasang aplikasi di HP</button>`}<button data-k="lay">${icon('rotate')}Tampilan potret / lanskap</button>`;
+    m.style.top = Math.min(window.innerHeight - 150, r.bottom + 6) + 'px'; m.style.left = Math.max(8, Math.min(window.innerWidth - 250, r.right - 240)) + 'px';
+    document.body.appendChild(m);
+    const close = (e) => { if (!m.contains(e.target)) { m.remove(); document.removeEventListener('pointerdown', close, true); } };
+    setTimeout(() => document.addEventListener('pointerdown', close, true), 0);
+    m.onclick = (e) => {
+      const b = e.target.closest('[data-k]'); if (!b) return; m.remove(); document.removeEventListener('pointerdown', close, true);
+      if (b.dataset.k === 'refresh') this.refreshMenu(anchor); else if (b.dataset.k === 'install') this.install(); else this.layoutMenu(anchor);
+    };
   },
   // ---- sidebar
   rail(open) { const r = $('.rail'); if (!r) return; r.classList.toggle('open', open); document.body.classList.toggle('rail-open', open); },
@@ -132,12 +160,6 @@ const App = {
       <aside class="rail">
         <div class="brandmark" data-railtoggle title="Menu"><div class="logo">${esc(name[0] || 'S')}</div><div><b>${esc(name)}</b><span>${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div></div>
         <nav class="nav">${nav.map((n) => n.sep ? '<div class="sep"></div>' : `<a href="#${n.id}" data-nav="${n.id}">${icon(n.icon)}<span>${esc(n.label)}</span>${n.id === 'laporan' ? '<span class="badge hidden" data-txbadge></span>' : ''}${n.id === 'produk' ? '<span class="badge hidden" data-chkbadge></span>' : ''}</a>`).join('')}
-          <div class="sep"></div>
-          <a href="absen.html">${icon('finger')}<span>Absen</span></a>
-          ${u.cek_stok_access ? `<a href="cek-stok.html">${icon('clipboard')}<span>Cek stok</span></a>` : ''}
-          ${u.role === 'admin' ? `<a href="#" data-broadcast>${icon('refresh')}<span>Refresh semua perangkat</span></a>` : ''}
-          <a href="#" data-install>${icon('download')}<span>Pasang aplikasi di HP</span></a>
-          <a href="#" data-layout>${icon('rotate')}<span>Tampilan potret / lanskap</span></a>
         </nav>
         <div class="me"><div class="avatar">${esc((u.name || 'U')[0])}</div><div class="grow"><b style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.name)}</b><span class="tiny muted">${u.role === 'admin' ? 'Admin' : 'Kasir'}</span></div><button class="btn ghost icon sm" data-logout title="Keluar" aria-label="Keluar">${icon('logout')}</button></div>
       </aside>
@@ -149,7 +171,7 @@ const App = {
       <nav class="tabbar">
         <a href="#kasir" data-tab="kasir">${icon('kasir')}Kasir</a>
         <a href="#laporan" data-tab="laporan">${icon('laporan')}Laporan</a>
-        <a href="#${u.role === 'admin' ? 'produk' : 'member'}" data-tab="${u.role === 'admin' ? 'produk' : 'member'}">${icon(u.role === 'admin' ? 'produk' : 'member')}${u.role === 'admin' ? 'Produk' : 'Member'}</a>
+        <a href="#produk" data-tab="produk">${icon('produk')}Produk</a>
         <a href="#" data-menu>${icon('menu')}Menu</a>
       </nav>
     </div>`;
@@ -161,16 +183,7 @@ const App = {
     // desktop: buka saat kursor mendekat, tutup otomatis saat kursor pergi
     rail.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse' && !document.body.classList.contains('compact')) this.rail(true); });
     rail.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse' && !document.body.classList.contains('compact')) this.rail(false); });
-    rail.addEventListener('click', (e) => { if (e.target.closest('.nav a[href^="#"]:not([data-broadcast]):not([data-install]):not([data-layout])')) this.rail(false); });
-    $('[data-install]').onclick = (e) => { e.preventDefault(); this.install(); };
-    $('[data-layout]').onclick = (e) => { e.preventDefault(); this.layoutMenu(e.currentTarget); };
-    this.updateInstall();
-    const bc = $('[data-broadcast]');
-    if (bc) bc.onclick = async (e) => {
-      e.preventDefault();
-      if (!(await confirmBox('Refresh semua perangkat?', 'Semua perangkat kasir yang sedang terbuka akan memuat ulang dalam ±20 detik. Gunakan setelah mengubah harga atau promo.', 'Kirim refresh', false))) return;
-      try { const r = await api('broadcast_refresh'); this.sig = r.id; toast('Perintah refresh terkirim', '', 'ok'); } catch (ex) { toastErr(ex); }
-    };
+    rail.addEventListener('click', (e) => { if (e.target.closest('.nav a[href^="#"]')) this.rail(false); });
     window.onhashchange = () => this.route();
     this.route();
     this.startPing();
@@ -182,6 +195,7 @@ const App = {
   route() {
     const u = this.user; if (!u) return;
     let id = (location.hash || '').replace('#', '').split('/')[0];
+    if (this.ALIAS[id]) { history.replaceState(null, '', '#' + this.ALIAS[id]); id = this.ALIAS[id].split('/')[0]; }
     const allowed = this.NAV.filter((n) => !n.sep && n.can(u)).map((n) => n.id);
     if (!allowed.includes(id)) id = u.role === 'admin' ? 'dashboard' : 'kasir';
     this.rail(false); document.body.classList.remove('cart-open');
@@ -198,7 +212,7 @@ const App = {
     Motion.watch(page); page._seen && page._seen.clear(); // halaman baru: angka boleh berjalan lagi
     this.view = id;
     if (id === 'laporan') { this.newTx = []; this.updateBadges(); }
-    const v = id === 'kasir' ? Kasir : this.views[id];
+    const v = id === 'kasir' ? Kasir : (this.views[id + 'Hub'] || this.views[id]);
     Promise.resolve(v ? v(page) : null).then((c) => { if (typeof c === 'function') this.cleanup = c; if (this.view === id) Motion.replay(page, 'page-in'); }).catch((e) => { page.innerHTML = `<div class="panel panel-b"><b>Gagal memuat halaman</b><p class="muted">${esc(e.message)}</p></div>`; });
   },
 
@@ -244,7 +258,10 @@ async function Kasir(page) {
         <button class="btn" data-addprod title="Tambah barang baru">${icon('plus')}<span class="hide-sm">Barang</span></button>
         <button class="btn" data-rjsell title="Jual barang reject (harga dari admin)">${icon('box')}<span class="hide-sm">Reject</span></button>
         <button class="btn icon prn-btn" data-prn title="Printer & struk terakhir" aria-label="Printer & struk terakhir">${icon('printer')}<i class="prn-dot"></i></button>
-        <button class="btn icon" data-lay title="Tampilan potret / lanskap" aria-label="Tampilan potret / lanskap">${icon('rotate')}</button>
+        <button class="btn icon kt-x" data-krefresh title="${App.isAdmin() ? 'Muat ulang / refresh semua perangkat' : 'Muat ulang aplikasi'}" aria-label="Muat ulang">${icon('refresh')}</button>
+        <button class="btn icon kt-x" data-install title="Pasang aplikasi di HP" aria-label="Pasang aplikasi di HP">${icon('download')}</button>
+        <button class="btn icon kt-x" data-lay title="Tampilan potret / lanskap" aria-label="Tampilan potret / lanskap">${icon('rotate')}</button>
+        <button class="btn icon kt-more" data-kmore title="Lainnya" aria-label="Lainnya: muat ulang, pasang aplikasi, tampilan">${icon('more')}</button>
       </div>
       <div class="cats" data-cats></div>
       <div class="promostrip" data-promos></div>
@@ -338,7 +355,7 @@ async function Kasir(page) {
       <div class="row"><span class="chip ${on ? 'green' : Printer.status === 'connecting' ? 'amber' : ''}">${on ? 'Terhubung' : Printer.status === 'connecting' ? 'Menghubungkan…' : 'Belum terhubung'}</span><b class="grow">${esc((Printer.device && Printer.device.name) || (sv && sv.name) || 'Belum ada printer tersimpan')}</b></div>
       ${!Printer.supported ? '<p class="small danger" style="margin:0">Browser ini tidak mendukung printer Bluetooth. Gunakan Chrome di Android / PC, atau cetak biasa.</p>' : on ? '<button class="btn" data-pdis>Putuskan printer</button>' : `<button class="btn primary" data-pcon>${icon('printer')}${sv ? 'Sambungkan ' + esc(sv.name) : 'Hubungkan printer'}</button>`}
       ${li ? `<button class="btn" data-plast>${icon('refresh')}Cetak ulang struk terakhir · ${esc(li.invoice)}</button>` : ''}
-      <a class="btn ghost" href="#printer">Pengaturan printer</a></div>` });
+      <a class="btn ghost" href="#pengaturan/printer">Pengaturan printer</a></div>` });
     const b = (q, f) => { const x = m.$(q); if (x) x.onclick = f; };
     b('[data-pcon]', async () => { try { await Printer.connect(); toast('Printer terhubung', Printer.device?.name || '', 'ok'); m.close(); } catch (e) { if (e.name !== 'NotFoundError') toastErr(e); } });
     b('[data-pdis]', () => { Printer.disconnect(); m.close(); });
@@ -894,6 +911,10 @@ async function Kasir(page) {
   el('[data-addprod]').onclick = addProductModal;
   el('[data-rjsell]').onclick = rejectSellModal;
   el('[data-lay]').onclick = (e) => App.layoutMenu(e.currentTarget);
+  el('[data-krefresh]').onclick = (e) => App.refreshMenu(e.currentTarget);
+  el('[data-install]').onclick = () => App.install();
+  el('[data-kmore]').onclick = (e) => App.moreMenu(e.currentTarget);
+  App.updateInstall();
   el('[data-prn]').onclick = printerMenu;
   el('[data-kmenu]').onclick = () => App.rail(true);
   el('[data-cats]').onclick = (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; st.cat = b.dataset.cat; renderCats(); renderGrid(); };

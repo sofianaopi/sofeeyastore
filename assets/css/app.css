@@ -814,3 +814,16 @@ body.d-phone .pos .pos-tools>.btn{height:44px;min-width:44px;padding:0 10px}
 .tk-want-list{margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
 @media(max-width:560px){.tk-den{grid-template-columns:86px 12px auto 1fr}.tk-want{grid-template-columns:1fr 70px auto}.tk-want [data-k=detail]{grid-column:1/-1;grid-row:2}.tk-bars>div{grid-template-columns:110px 1fr 28px}}
 .tk [data-rwarn] svg,.tk [data-conv] svg{width:15px;height:15px;vertical-align:-3px}
+/* v33: menu gabungan (tab) */
+.hub-tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 0 16px;padding:4px;background:var(--line-2);border-radius:14px;width:max-content;max-width:100%}
+.hub-tabs button{flex:none;display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 14px;border:0;border-radius:10px;background:none;font:600 14px/1 var(--font);color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.hub-tabs button svg{width:18px;height:18px}
+.hub-tabs button.on{background:var(--card);color:var(--brand);box-shadow:0 1px 3px rgba(20,35,58,.12)}
+.hub-tabs button:focus-visible{outline:3px solid var(--brand-soft)}
+.hub-body>.page-head>div:first-child{display:none}
+.hub-body>.page-head{justify-content:flex-end;margin-bottom:10px}
+.hub-body>.page-head:has(>.row:empty){display:none}
+.lap-single{grid-template-columns:1fr!important}.lap-single .lap-nav{display:none}
+.kt-more{display:none}
+body.d-phone .pos .kt-x{display:none}body.d-phone .pos .kt-more{display:inline-flex}
+.hub-body .lap-single .lap-title h2{display:none}

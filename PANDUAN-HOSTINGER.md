@@ -44,6 +44,23 @@ Cukup timpa semua file, **kecuali** `api/config.php` atau `api/config.local.php`
 
 Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus data situs), keranjang yang belum dibayar ikut terhapus — transaksi yang sudah selesai tetap aman di server.
 
+## Susunan menu (versi 33)
+
+| Menu | Isi (tab) | Kasir |
+|---|---|---|
+| Kasir | layar jualan + ikon **muat ulang**, **pasang aplikasi**, **tampilan** (di HP: tombol ⋯) | ✓ |
+| Dashboard | ringkasan | admin |
+| Laporan keuangan | Transaksi, Laba rugi, Pembayaran | Transaksi hari ini |
+| Tutup kasir | laporan akhir hari, rekap | ✓ |
+| QRIS | QRIS nominal bebas | admin |
+| **Produk** | Barang & stok, Cek stok, Persediaan, Produk terlaris, Retur, Barang reject, Pengiriman | Cek stok*, Retur, Barang reject, Pengiriman |
+| **Marketing** | Promo, Sales & komisi, Member (+ Laporan member), Katalog website | Promo*, Member, Katalog website |
+| Pengguna | Daftar pengguna, Absen & pegawai | Absen & laporan sendiri |
+| Pengaturan | Pengaturan toko, Printer | Printer |
+| Akun saya | | ✓ |
+
+\* sesuai izin di akun pengguna. Alamat lama (mis. `#promo`, `#printer`) otomatis diarahkan ke menu baru.
+
 ## Tutup kasir — laporan akhir hari (versi 32)
 
 Menu **Tutup kasir** (semua akun). Setiap kasir mengisi **satu laporan per hari** (bisa diperbarui sampai hari berganti):

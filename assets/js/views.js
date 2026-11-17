@@ -236,9 +236,10 @@ function periodCtl(root, modes, def, onChange) {
 const PAY_KEYS = ['cash', 'qris', 'debit', 'transfer'];
 const payLabel = (k) => PAY[k] || k;
 
-V.laporan = async (page) => {
+V.laporan = async (page, opt = {}) => {
   const admin = App.isAdmin();
-  const MENUS = [
+  // opt.only: tampilkan sub laporan tertentu saja (dipakai menu Produk, Member, Pengguna); opt.embed: tanpa judul & navigasi
+  const ALL = [
     ['transaksi', 'Transaksi', 'laporan', true, 'Penjualan per hari, bulan, dan tahun.'],
     ['labarugi', 'Laba rugi', 'wallet', admin, 'Laporan keuangan: pendapatan, HPP, beban, laba bersih.'],
     ['persediaan', 'Persediaan', 'box', admin, 'Barang masuk & keluar per tanggal.'],
@@ -249,17 +250,21 @@ V.laporan = async (page) => {
     ['retur', 'Retur', 'rotate', true, 'Tukar & pengembalian barang.'],
     ['reject', 'Barang reject', 'trash', true, 'Barang rusak / cacat yang dikeluarkan dari stok.'],
   ].filter((m) => m[3]);
-  const fromHash = (location.hash.split('/')[1] || '');
+  const FIN = ['transaksi', 'labarugi', 'pembayaran'];
+  const MENUS = ALL.filter((m) => (opt.only ? opt.only.includes(m[0]) : FIN.includes(m[0])));
+  if (!MENUS.length) { page.innerHTML = emptyState('Laporan ini tidak tersedia untuk akun Anda.'); return; }
+  const fromHash = opt.embed ? '' : (location.hash.split('/')[1] || '');
   let sub = MENUS.some((m) => m[0] === fromHash) ? fromHash : (() => { try { const s = localStorage.getItem('lap-sub'); return MENUS.some((m) => m[0] === s) ? s : 'transaksi'; } catch (e) { return 'transaksi'; } })();
-  page.innerHTML = head('Laporan keuangan', admin ? 'Semua laporan toko dalam satu tempat.' : 'Laporan yang dapat diakses kasir.') +
-    `<div class="lap"><nav class="lap-nav" data-nav>${MENUS.map(([k, l, ic]) => `<button data-sub="${k}">${icon(ic)}<span>${l}</span></button>`).join('')}</nav><section class="lap-main"><div class="lap-h" data-h></div><div data-body></div></section></div>`;
+  if (opt.only) sub = MENUS[0][0];
+  page.innerHTML = (opt.embed ? '' : head('Laporan keuangan', admin ? 'Analisis keuangan toko: penjualan, laba rugi, dan pembayaran.' : 'Penjualan Anda hari ini.')) +
+    `<div class="lap${MENUS.length < 2 ? ' lap-single' : ''}"><nav class="lap-nav" data-nav>${MENUS.map(([k, l, ic]) => `<button data-sub="${k}">${icon(ic)}<span>${l}</span></button>`).join('')}</nav><section class="lap-main"><div class="lap-h" data-h></div><div data-body></div></section></div>`;
   const body = $('[data-body]', page), hd = $('[data-h]', page);
   const loading = () => { body.innerHTML = '<div class="empty">Memuat…</div>'; };
   const failed = (e) => { body.innerHTML = `<div class="panel panel-b danger">${esc(e.message)}</div>`; };
   const ctlBox = (modes, def, cb) => { hd.insertAdjacentHTML('beforeend', '<div data-ctl></div>'); periodCtl($('[data-ctl]', hd), modes, def, cb); };
   const go = (k) => {
-    sub = k; body.onclick = null; body.onchange = null; try { localStorage.setItem('lap-sub', k); } catch (e) { /* abaikan */ }
-    history.replaceState(null, '', '#laporan/' + k);
+    sub = k; body.onclick = null; body.onchange = null;
+    if (!opt.embed) { try { localStorage.setItem('lap-sub', k); } catch (e) { /* abaikan */ } history.replaceState(null, '', '#laporan/' + k); }
     $$('[data-sub]', page).forEach((b) => b.classList.toggle('on', b.dataset.sub === k));
     const m = MENUS.find((x) => x[0] === k);
     hd.innerHTML = `<div class="lap-title"><h2>${m[1]}</h2><span class="small muted">${m[4]}</span></div>`;
@@ -768,7 +773,7 @@ async function photoModal(g, onSaved) {
   const rm = m.$('[data-rm]'); if (rm) rm.onclick = async () => { try { await api('product_image', { ids, remove: true }); toast('Foto dihapus', '', 'ok'); m.close(); onSaved(''); } catch (ex) { toastErr(ex); } };
 }
 
-V.produk = async (page) => {
+V.produkList = async (page) => {
   page.innerHTML = head('Produk & stok', 'Kelola model, varian warna & ukuran, stok, foto, dan label barcode.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar barang'], ['moves', 'Riwayat stok'], ['checks', 'Pengajuan cek stok' + (App.pendingChecks ? ` (${App.pendingChecks})` : '')]], 'list')}</div><div data-body></div>`;
   const body = $('[data-body]', page);
   let products = [], groupsL = [], sel = new Set();
@@ -857,7 +862,8 @@ V.produk = async (page) => {
     };
   }
   bindTabs(page, (t) => { body.onclick = null; ({ list: drawList, moves: drawMoves, checks: drawChecks })[t](); });
-  await drawList();
+  let first = 'list'; try { first = localStorage.getItem('produk-tab') || 'list'; localStorage.removeItem('produk-tab'); } catch (e) { /* abaikan */ }
+  if (first === 'checks') $('[data-t="checks"]', page).click(); else await drawList();
 };
 
 // =====================================================================
@@ -962,7 +968,7 @@ V.promo = async (page) => {
 // =====================================================================
 V.member = async (page) => {
   const admin = App.isAdmin();
-  page.innerHTML = head('Member', 'Data pelanggan, poin belanja, dan reward.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar member'], ['reward', 'Reward poin'], ...(admin ? [['set', 'Aturan poin & diskon']] : []), ['broadcast', 'Broadcast WA']], 'list')}</div><div data-body></div>`;
+  page.innerHTML = head('Member', 'Data pelanggan, poin belanja, dan reward.') + `<div style="margin-bottom:14px">${tabs([['list', 'Daftar member'], ['reward', 'Reward poin'], ...(admin ? [['set', 'Aturan poin & diskon']] : []), ['broadcast', 'Broadcast WA'], ['laporan', 'Laporan member']], 'list')}</div><div data-body></div>`;
   const body = $('[data-body]', page);
   const mform = (m = {}) => `${field('Nama', 'name', m.name)}${field('Nomor HP / WA', 'phone', m.phone, { type: 'tel' })}${field('Email', 'email', m.email, { type: 'email' })}${admin ? `<div class="grid2">${field('Poin', 'points', m.points ?? 0, { numeric: true })}${field('Voucher belanja (Rp)', 'voucher_amount', m.voucher_amount || '', { numeric: true, hint: 'Sekali pakai, otomatis terpotong di kasir.' })}</div><label class="check"><input type="checkbox" name="no_broadcast" ${m.no_broadcast ? 'checked' : ''}> Tidak mau menerima broadcast WhatsApp</label>` : ''}`;
   async function drawList() {
@@ -1169,7 +1175,7 @@ V.member = async (page) => {
     bindTabs(m.el, (t) => { mode = t; running = false; clearTimeout(timer); t === 'manual' ? drawManual() : drawAuto(); });
     head2(); drawManual();
   }
-  bindTabs(page, (t) => { body.onclick = null; ({ list: drawList, reward: drawReward, set: drawSet, broadcast: drawBroadcast })[t](); });
+  bindTabs(page, (t) => { body.onclick = null; body.onchange = null; ({ list: drawList, reward: drawReward, set: drawSet, broadcast: drawBroadcast, laporan: () => V.laporan(body, { only: ['member'], embed: true }) })[t](); });
   await drawList();
 };
 
@@ -1926,3 +1932,77 @@ V.tutup = async (page) => {
   drawForm();
 };
 function diffChip(d) { d = Math.round(d || 0); return d === 0 ? '<span class="chip green">Pas</span>' : d > 0 ? `<span class="chip amber">Lebih ${rupiah(d)}</span>` : `<span class="chip red">Kurang ${rupiah(-d)}</span>`; }
+
+
+// ================================================================ MENU GABUNGAN (tab di dalam satu menu)
+// tabs: [id, label, icon, boleh?, render(el) → cleanup?]; sub-menu tersimpan di alamat, mis. #produk/retur
+function hubPage(page, base, title, desc, list) {
+  const T = list.filter((t) => t[3]);
+  if (!T.length) { page.innerHTML = head(title) + emptyState('Tidak ada menu yang bisa dibuka dengan akun Anda.'); return; }
+  const want = (location.hash.split('/')[1] || '');
+  let cur = T.some((t) => t[0] === want) ? want : (() => { try { const v = localStorage.getItem('hub-' + base); return T.some((t) => t[0] === v) ? v : T[0][0]; } catch (e) { return T[0][0]; } })();
+  page.innerHTML = head(title, desc) + `<div class="hub-tabs" role="tablist">${T.map(([k, l, ic]) => `<button role="tab" data-hub="${k}">${icon(ic)}<span>${esc(l)}</span></button>`).join('')}</div><div class="hub-body" data-hb></div>`;
+  const hb = $('[data-hb]', page); let clean = null, seq = 0;
+  const go = async (k) => {
+    cur = k; const my = ++seq;
+    if (clean) { try { clean(); } catch (e) { /* abaikan */ } clean = null; }
+    $$('[data-hub]', page).forEach((b) => { b.classList.toggle('on', b.dataset.hub === k); b.setAttribute('aria-selected', String(b.dataset.hub === k)); });
+    const on = $(`[data-hub="${k}"]`, page); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+    history.replaceState(null, '', `#${base}/${k}`); try { localStorage.setItem('hub-' + base, k); } catch (e) { /* abaikan */ }
+    hb.onclick = null; hb.onchange = null; hb.oninput = null;
+    hb.innerHTML = '<div class="empty">Memuat…</div>';
+    try { const c = await T.find((t) => t[0] === k)[4](hb); if (my === seq && typeof c === 'function') clean = c; }
+    catch (e) { if (my === seq) hb.innerHTML = `<div class="panel panel-b danger">${esc(e.message)}</div>`; }
+  };
+  $('.hub-tabs', page).onclick = (e) => { const b = e.target.closest('[data-hub]'); if (b && b.dataset.hub !== cur) go(b.dataset.hub); };
+  go(cur);
+  return () => { if (clean) try { clean(); } catch (e) { /* abaikan */ } };
+}
+
+V.produk = (page) => {
+  const admin = App.isAdmin(), u = App.user;
+  return hubPage(page, 'produk', 'Produk', admin ? 'Barang & stok, cek stok, persediaan, barang terlaris, retur, barang reject, dan pengiriman.' : 'Cek stok, retur, barang reject, dan pengiriman.', [
+    ['barang', 'Barang & stok', 'produk', admin, (el) => V.produkList(el)],
+    ['cekstok', 'Cek stok', 'clipboard', admin || u.cek_stok_access, (el) => {
+      el.innerHTML = `<div class="panel panel-b stack" style="max-width:720px"><b>Cek stok barang (stok opname)</b>
+        <p class="muted" style="margin:0">Hitung stok fisik di rak lalu cocokkan dengan stok aplikasi. Dibuka di halaman khusus supaya nyaman dipakai sambil memegang barang.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap">${u.cek_stok_access || admin ? `<a class="btn primary" href="cek-stok.html">${icon('clipboard')}Mulai cek stok</a>` : ''}${admin ? `<a class="btn" href="#produk/barang" data-tochecks>Lihat pengajuan cek stok</a>` : ''}</div>
+        ${admin ? '<p class="small muted" style="margin:0">Hasil cek dari petugas masuk ke <b>Barang & stok → Pengajuan cek stok</b> untuk disetujui.</p>' : ''}</div>`;
+      const t = $('[data-tochecks]', el); if (t) t.onclick = (e) => { e.preventDefault(); try { localStorage.setItem('produk-tab', 'checks'); } catch (x) { /* abaikan */ } $('[data-hub="barang"]').click(); };
+    }],
+    ['persediaan', 'Persediaan', 'box', admin, (el) => V.laporan(el, { only: ['persediaan'], embed: true })],
+    ['terlaris', 'Produk terlaris', 'star', admin, (el) => V.laporan(el, { only: ['terlaris'], embed: true })],
+    ['retur', 'Retur', 'rotate', true, (el) => V.laporan(el, { only: ['retur'], embed: true })],
+    ['reject', 'Barang reject', 'trash', true, (el) => V.laporan(el, { only: ['reject'], embed: true })],
+    ['pengiriman', 'Pengiriman', 'truck', true, (el) => V.pengiriman(el)],
+  ]);
+};
+
+V.marketing = (page) => {
+  const admin = App.isAdmin(), u = App.user;
+  return hubPage(page, 'marketing', 'Marketing', 'Promo, sales & komisi, member, dan katalog website toko.', [
+    ['promo', 'Promo', 'promo', !!u.promo_access, (el) => V.promo(el)],
+    ['sales', 'Sales & komisi', 'sales', admin, (el) => V.sales(el)],
+    ['member', 'Member', 'member', true, (el) => V.member(el)],
+    ['katalog', 'Katalog website', 'link', true, (el) => V.website(el)],
+  ]);
+};
+
+V.penggunaHub = (page) => {
+  const admin = App.isAdmin();
+  return hubPage(page, 'pengguna', 'Pengguna', admin ? 'Akun admin & kasir, absen, dan laporan pegawai.' : 'Absen dan laporan Anda.', [
+    ['akun', 'Daftar pengguna', 'users', admin, (el) => V.pengguna(el)],
+    ['absen', 'Absen & pegawai', 'finger', true, async (el) => {
+      el.innerHTML = `<div class="panel panel-b row" style="gap:12px;flex-wrap:wrap;margin-bottom:14px"><div class="grow"><b>Absen masuk / pulang</b><div class="small muted">Dibuka di halaman absen (kamera & lokasi).</div></div><a class="btn primary" href="absen.html">${icon('finger')}Absen sekarang</a></div><div data-lp></div>`;
+      return V.laporan($('[data-lp]', el), { only: ['pegawai'], embed: true });
+    }],
+  ]);
+};
+
+V.pengaturanHub = (page) => {
+  const admin = App.isAdmin();
+  return hubPage(page, 'pengaturan', 'Pengaturan', admin ? 'Pengaturan toko dan printer struk.' : 'Printer struk di perangkat ini.', [
+    ['toko', 'Pengaturan toko', 'setting', admin, (el) => V.pengaturan(el)],
+    ['printer', 'Printer', 'printer', true, (el) => V.printer(el)],
+  ]);
+};
