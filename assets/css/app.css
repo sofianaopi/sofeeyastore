@@ -827,3 +827,9 @@ body.d-phone .pos .pos-tools>.btn{height:44px;min-width:44px;padding:0 10px}
 .kt-more{display:none}
 body.d-phone .pos .kt-x{display:none}body.d-phone .pos .kt-more{display:inline-flex}
 .hub-body .lap-single .lap-title h2{display:none}
+/* v34: awal & akhir kas */
+.tk-kind{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.tk-kind button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:12px 14px;border-radius:var(--r);border:2px solid var(--line);background:var(--card);cursor:pointer;font:inherit;color:inherit;text-align:left}
+.tk-kind button b{font-size:16px}.tk-kind button>span:not(.chip){font-size:13px;color:var(--ink-3)}
+.tk-kind button .chip{margin-top:6px}.tk-kind button .chip svg{width:13px;height:13px;vertical-align:-2px}
+.tk-kind button.on{border-color:var(--brand);background:var(--brand-soft)}

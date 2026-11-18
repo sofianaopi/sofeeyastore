@@ -278,6 +278,7 @@ CREATE TABLE IF NOT EXISTS rejects (
 -- Laporan tutup kasir harian (per kasir per hari)
 CREATE TABLE IF NOT EXISTS daily_reports (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kind VARCHAR(10) NOT NULL DEFAULT 'akhir',
   report_date VARCHAR(10) NOT NULL DEFAULT '',
   user_id INT NOT NULL DEFAULT 0,
   user_name VARCHAR(200) NOT NULL DEFAULT '',
@@ -296,7 +297,7 @@ CREATE TABLE IF NOT EXISTS daily_reports (
   note TEXT NULL,
   created DATETIME NULL,
   updated DATETIME NULL,
-  UNIQUE KEY idx_dr_day_user (report_date, user_id)
+  UNIQUE KEY idx_dr_day_user_kind (report_date, user_id, kind)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Katalog website (sofeeyastore.id/katalog): foto per model, tampil/tidak, deskripsi
@@ -388,7 +389,7 @@ INSERT IGNORE INTO settings (`key`, value, created, updated) VALUES
  ('sales_channels', '["Toko","WhatsApp","Instagram","Shopee","TikTok Shop"]', NOW(), NOW()),
  ('size_sets', '["S, M, L, XL","XS, S, M, L, XL, XXL","All size","M, L, XL, XXL, 3XL","27, 28, 29, 30, 31, 32","36, 37, 38, 39, 40"]', NOW(), NOW()),
  ('return_days', '7', NOW(), NOW()),
- ('schema_version', '13', NOW(), NOW());
+ ('schema_version', '14', NOW(), NOW());
 
 INSERT IGNORE INTO sales (name, code, active, created, updated) VALUES
  ('Sales 1', 'SLS01', 1, NOW(), NOW());

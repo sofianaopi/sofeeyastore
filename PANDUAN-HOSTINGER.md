@@ -51,7 +51,7 @@ Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus 
 | Kasir | layar jualan + ikon **muat ulang**, **pasang aplikasi**, **tampilan** (di HP: tombol ⋯) | ✓ |
 | Dashboard | ringkasan | admin |
 | Laporan keuangan | Transaksi, Laba rugi, Pembayaran | Transaksi hari ini |
-| Tutup kasir | laporan akhir hari, rekap | ✓ |
+| Tutup kasir | awal kas & akhir kas, rekap | ✓ |
 | QRIS | QRIS nominal bebas | admin |
 | **Produk** | Barang & stok, Cek stok, Persediaan, Produk terlaris, Retur, Barang reject, Pengiriman | Cek stok*, Retur, Barang reject, Pengiriman |
 | **Marketing** | Promo, Sales & komisi, Member (+ Laporan member), Katalog website | Promo*, Member, Katalog website |
@@ -60,6 +60,14 @@ Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus 
 | Akun saya | | ✓ |
 
 \* sesuai izin di akun pengguna. Alamat lama (mis. `#promo`, `#printer`) otomatis diarahkan ke menu baru.
+
+## Tutup kasir — awal kas & akhir kas (versi 34)
+
+Laporan kini **dua kali sehari** per kasir:
+1. **Awal kas** (saat buka toko): hitung uang di laci per pecahan. Totalnya otomatis menjadi *modal awal*.
+2. **Akhir kas** (saat tutup): hitung uang di laci, isi pengunjung, alasan tidak membeli, dan barang yang dicari. Selisih dihitung dari awal kas + penjualan tunai − uang keluar.
+
+Bila awal kas dikoreksi setelah akhir kas dikirim, selisihnya ikut dihitung ulang. Rekap admin menampilkan kolom Awal kas dan Akhir kas; kasir yang sudah mengisi awal kas tetapi belum tutup diberi tanda *Belum ada akhir kas*. Excel memuat rincian pecahan awal dan akhir.
 
 ## Tutup kasir — laporan akhir hari (versi 32)
 

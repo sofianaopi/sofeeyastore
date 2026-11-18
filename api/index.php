@@ -61,7 +61,7 @@ function db(): PDO {
 function migrate(PDO $pdo): void {
     $v = 1;
     try { $r = $pdo->query("SELECT value FROM settings WHERE `key` = 'schema_version'")->fetch(); if ($r) $v = (int)$r['value']; } catch (Throwable $e) { return; }
-    if ($v >= 13) return;
+    if ($v >= 14) return;
     $sqlite = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite';
     $pk = $sqlite ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'INT UNSIGNED AUTO_INCREMENT PRIMARY KEY';
     $tail = $sqlite ? '' : ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
@@ -151,6 +151,11 @@ function migrate(PDO $pdo): void {
         reasons TEXT NULL, wanted TEXT NULL, note TEXT NULL, created DATETIME NULL, updated DATETIME NULL)$tail");
     try { $pdo->exec('CREATE UNIQUE INDEX idx_dr_day_user ON daily_reports (report_date, user_id)'); } catch (Throwable $e) { /* sudah ada */ }
     $setDefault('schema_version', '13', true);
+    // v14: laporan kas dua kali sehari (awal kas saat buka & akhir kas saat tutup)
+    $addCol('daily_reports', 'kind', "VARCHAR(10) NOT NULL DEFAULT 'akhir'");
+    foreach (['DROP INDEX idx_dr_day_user ON daily_reports', 'DROP INDEX idx_dr_day_user'] as $sql) { try { $pdo->exec($sql); break; } catch (Throwable $e) { /* coba sintaks lain */ } }
+    try { $pdo->exec('CREATE UNIQUE INDEX idx_dr_day_user_kind ON daily_reports (report_date, user_id, kind)'); } catch (Throwable $e) { /* sudah ada */ }
+    $setDefault('schema_version', '14', true);
 }
 const DEFAULT_CHANNELS = ['Toko', 'WhatsApp', 'Instagram', 'Shopee', 'TikTok Shop'];
 const DEFAULT_SIZE_SETS = ['S, M, L, XL', 'XS, S, M, L, XL, XXL', 'All size', 'M, L, XL, XXL, 3XL', '27, 28, 29, 30, 31, 32', '36, 37, 38, 39, 40'];
@@ -212,7 +217,7 @@ function check_perm(string $perm): array {
 $TABLES = [
     'products' => ['fields' => ['name' => 's', 'barcode' => 's', 'category' => 's', 'cost' => 'n', 'price' => 'n', 'discount' => 'n', 'stock' => 'i', 'commission' => 'n', 'image' => 's', 'stock_in_date' => 'd', 'model' => 's', 'size' => 's', 'color' => 's'],
         'required' => ['name'], 'search' => ['name', 'barcode', 'category', 'model', 'color'], 'read' => 'auth', 'write' => 'admin', 'order' => 'name'],
-    'daily_reports' => ['fields' => ['report_date' => 's', 'user_id' => 'i', 'user_name' => 's', 'cash_counts' => 'j', 'cash_total' => 'n', 'opening_cash' => 'n', 'cash_out' => 'n', 'cash_sales' => 'n', 'expected' => 'n', 'diff' => 'n', 'tx_count' => 'i', 'visitors' => 'i', 'buyers' => 'i', 'reasons' => 'j', 'wanted' => 'j', 'note' => 's'],
+    'daily_reports' => ['fields' => ['kind' => 's', 'report_date' => 's', 'user_id' => 'i', 'user_name' => 's', 'cash_counts' => 'j', 'cash_total' => 'n', 'opening_cash' => 'n', 'cash_out' => 'n', 'cash_sales' => 'n', 'expected' => 'n', 'diff' => 'n', 'tx_count' => 'i', 'visitors' => 'i', 'buyers' => 'i', 'reasons' => 'j', 'wanted' => 'j', 'note' => 's'],
         'search' => ['user_name'], 'read' => 'admin', 'write' => 'none', 'create' => 'none', 'delete' => 'admin', 'order' => '-report_date'],
     'web_catalog' => ['fields' => ['model_key' => 's', 'slug' => 's', 'visible' => 'b', 'title' => 's', 'description' => 's', 'photos' => 'j', 'sort' => 'i'],
         'search' => ['model_key', 'title'], 'read' => 'auth', 'write' => 'none', 'create' => 'none', 'delete' => 'none', 'order' => 'sort'],
@@ -670,16 +675,30 @@ function report_get(array $in): array {
     $u = need_auth();
     $date = dr_date($in, $u);
     $uid = $u['role'] === 'admin' && !empty($in['user_id']) ? (int)$in['user_id'] : (int)$u['id'];
-    $row = one('SELECT * FROM daily_reports WHERE report_date = ? AND user_id = ?', [$date, $uid]);
-    $mine = array_map(fn($r) => cast_row('daily_reports', $r), all('SELECT * FROM daily_reports WHERE user_id = ? ORDER BY report_date DESC LIMIT 14', [(int)$u['id']]));
-    return ['date' => $date, 'report' => $row ? cast_row('daily_reports', $row) : null, 'system' => dr_system($uid, $date), 'denoms' => CASH_DENOMS, 'reasons' => DR_REASONS, 'history' => $mine];
+    $get = function (string $k) use ($date, $uid) { $r = one('SELECT * FROM daily_reports WHERE report_date = ? AND user_id = ? AND kind = ?', [$date, $uid, $k]); return $r ? cast_row('daily_reports', $r) : null; };
+    $mine = array_map(fn($r) => cast_row('daily_reports', $r), all('SELECT * FROM daily_reports WHERE user_id = ? ORDER BY report_date DESC, kind DESC LIMIT 28', [(int)$u['id']]));
+    return ['date' => $date, 'awal' => $get('awal'), 'report' => $get('akhir'), 'system' => dr_system($uid, $date), 'denoms' => CASH_DENOMS, 'reasons' => DR_REASONS, 'history' => $mine];
 }
 function report_save(array $in): array {
     $u = need_auth();
     $date = dr_date($in, $u);
     $counts = []; $total = 0;
     foreach (CASH_DENOMS as $d) { $n = max(0, (int)(($in['cash_counts'] ?? [])[(string)$d] ?? 0)); if ($n > 100000) fail('Jumlah lembar terlalu besar.'); $counts[(string)$d] = $n; $total += $n * $d; }
-    $opening = max(0, round((float)($in['opening_cash'] ?? 0))); $out = max(0, round((float)($in['cash_out'] ?? 0)));
+    $kind = (string)($in['kind'] ?? 'akhir') === 'awal' ? 'awal' : 'akhir';
+    if ($kind === 'awal') {
+        // awal kas: hanya hitungan uang di laci saat buka toko
+        $vals = ['kind' => 'awal', 'report_date' => $date, 'user_id' => (int)$u['id'], 'user_name' => $u['name'], 'cash_counts' => json_encode($counts), 'cash_total' => $total,
+            'opening_cash' => $total, 'note' => trim(mb_substr((string)($in['note'] ?? ''), 0, 1000))];
+        $old = one("SELECT id FROM daily_reports WHERE report_date = ? AND user_id = ? AND kind = 'awal'", [$date, (int)$u['id']]);
+        $id = $old ? (int)$old['id'] : 0;
+        if ($id) update_row('daily_reports', $id, $vals); else $id = insert_row('daily_reports', $vals);
+        // akhir kas yang sudah ada ikut memakai modal awal baru
+        $ak = one("SELECT * FROM daily_reports WHERE report_date = ? AND user_id = ? AND kind = 'akhir'", [$date, (int)$u['id']]);
+        if ($ak) { $exp = $total + (float)$ak['cash_sales'] - (float)$ak['cash_out']; update_row('daily_reports', (int)$ak['id'], ['opening_cash' => $total, 'expected' => $exp, 'diff' => (float)$ak['cash_total'] - $exp]); }
+        return get_row('daily_reports', $id);
+    }
+    $awal = one("SELECT cash_total FROM daily_reports WHERE report_date = ? AND user_id = ? AND kind = 'awal'", [$date, (int)$u['id']]);
+    $opening = $awal ? round((float)$awal['cash_total']) : max(0, round((float)($in['opening_cash'] ?? 0))); $out = max(0, round((float)($in['cash_out'] ?? 0)));
     $visitors = max(0, (int)($in['visitors'] ?? 0)); $buyers = max(0, (int)($in['buyers'] ?? 0));
     if ($visitors > 100000 || $buyers > 100000) fail('Jumlah pengunjung tidak wajar.');
     if ($buyers > $visitors) fail('Jumlah yang membeli tidak boleh lebih banyak dari jumlah yang datang.');
@@ -700,11 +719,11 @@ function report_save(array $in): array {
     }
     $sys = dr_system((int)$u['id'], $date);
     $expected = $opening + $sys['cash_sales'] - $out;
-    $vals = ['report_date' => $date, 'user_id' => (int)$u['id'], 'user_name' => $u['name'], 'cash_counts' => json_encode($counts), 'cash_total' => $total,
+    $vals = ['kind' => 'akhir', 'report_date' => $date, 'user_id' => (int)$u['id'], 'user_name' => $u['name'], 'cash_counts' => json_encode($counts), 'cash_total' => $total,
         'opening_cash' => $opening, 'cash_out' => $out, 'cash_sales' => $sys['cash_sales'], 'expected' => $expected, 'diff' => $total - $expected, 'tx_count' => $sys['tx_count'],
         'visitors' => $visitors, 'buyers' => $buyers, 'reasons' => json_encode($reasons, JSON_UNESCAPED_UNICODE), 'wanted' => json_encode($wanted, JSON_UNESCAPED_UNICODE),
         'note' => trim(mb_substr((string)($in['note'] ?? ''), 0, 1000))];
-    $old = one('SELECT id FROM daily_reports WHERE report_date = ? AND user_id = ?', [$date, (int)$u['id']]);
+    $old = one("SELECT id FROM daily_reports WHERE report_date = ? AND user_id = ? AND kind = 'akhir'", [$date, (int)$u['id']]);
     $id = $old ? (int)$old['id'] : 0;
     if ($id) update_row('daily_reports', $id, $vals); else $id = insert_row('daily_reports', $vals);
     return get_row('daily_reports', $id);

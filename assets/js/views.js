@@ -1785,31 +1785,36 @@ V.website = async (page) => {
 // ================================================================ TUTUP KASIR (laporan harian per kasir)
 V.tutup = async (page) => {
   const admin = App.isAdmin();
-  page.innerHTML = head('Tutup kasir', 'Laporan akhir hari: hitung uang di laci per pecahan, jumlah pengunjung, alasan tidak membeli, dan barang yang dicari pembeli.') +
+  page.innerHTML = head('Tutup kasir', 'Dua kali sehari: awal kas saat buka toko dan akhir kas saat tutup. Hitung uang di laci per pecahan, jumlah pengunjung, alasan tidak membeli, dan barang yang dicari pembeli.') +
     (admin ? `<div style="margin-bottom:14px">${tabs([['isi', 'Laporan saya'], ['rekap', 'Rekap semua kasir']], 'isi')}</div>` : '') + '<div data-body></div>';
   const body = $('[data-body]', page);
   if (admin) bindTabs(page, (t) => (t === 'rekap' ? drawRekap() : drawForm()));
 
-  async function drawForm() {
+  async function drawForm(want) {
     body.innerHTML = '<div class="empty">Memuat…</div>';
     let d; try { d = await api('report_get', {}); } catch (e) { toastErr(e); return; }
-    const r = d.report || {};
+    // dua laporan sehari: awal kas (buka toko) lalu akhir kas (tutup toko)
+    const kind = want || (d.awal ? 'akhir' : 'awal'), awalMode = kind === 'awal';
+    const r = (awalMode ? d.awal : d.report) || {};
     const counts = r.cash_counts || {};
     const reasons = new Map((r.reasons || []).map((x) => [x.reason, x]));
     let wanted = (r.wanted || []).length ? r.wanted.map((x) => ({ ...x })) : [{ item: '', detail: '', count: 1 }];
     const dayName = new Date(d.date + 'T00:00:00').toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const st = (x) => (x ? `<span class="chip green">${icon('check')} ${fmtTime(x.updated || x.created)}</span>` : '<span class="chip">Belum</span>');
     body.innerHTML = `<div class="tk">
-      <p class="small muted" style="margin:0 0 12px">${esc(dayName)} · ${esc(App.user.name)}${r.updated ? ` · terakhir disimpan ${fmtTime(r.updated)}` : ''}</p>
+      <p class="small muted" style="margin:0 0 10px">${esc(dayName)} · ${esc(App.user.name)}</p>
+      <div class="tk-kind" role="tablist"><button role="tab" data-kind="awal" class="${awalMode ? 'on' : ''}"><b>Awal kas</b><span>Saat buka toko</span>${st(d.awal)}</button><button role="tab" data-kind="akhir" class="${awalMode ? '' : 'on'}"><b>Akhir kas</b><span>Saat tutup toko</span>${st(d.report)}</button></div>
       <div class="panel panel-b stack">
-        <b>1. Uang di laci kas</b>
+        <b>${awalMode ? 'Uang di laci saat buka toko' : '1. Uang di laci saat tutup toko'}</b>
         <p class="small muted" style="margin:-6px 0 0">Hitung lembar/keping per pecahan. Uang Rp1.000 kertas dan koin digabung.</p>
         <div class="tk-cash">${d.denoms.map((v) => `<label class="tk-den"><span class="tk-v">${rupiah(v).replace('Rp', 'Rp ')}</span><span class="tk-x">×</span>
           <span class="tk-step"><button type="button" class="btn icon sm" data-dec="${v}" aria-label="Kurangi ${v}">−</button><input class="input num" inputmode="numeric" data-den="${v}" value="${counts[v] || ''}" placeholder="0" aria-label="Jumlah lembar ${v}"><button type="button" class="btn icon sm" data-inc="${v}" aria-label="Tambah ${v}">+</button></span>
           <span class="tk-sum" data-sum="${v}">Rp0</span></label>`).join('')}</div>
-        <div class="tk-total"><span>Total uang dihitung</span><b data-ctot>Rp0</b></div>
-        <div class="grid2">${field('Modal awal di laci (Rp)', 'opening_cash', r.opening_cash ? String(r.opening_cash) : '', { numeric: true, placeholder: 'mis. 200000' })}${field('Uang keluar dari laci (Rp)', 'cash_out', r.cash_out ? String(r.cash_out) : '', { numeric: true, placeholder: 'mis. beli air, parkir', hint: 'Pengeluaran yang diambil dari laci hari ini.' })}</div>
-        <div class="tk-recon" data-recon></div>
+        <div class="tk-total"><span>${awalMode ? 'Total awal kas' : 'Total uang dihitung'}</span><b data-ctot>Rp0</b></div>
+        ${awalMode ? '<p class="small muted" style="margin:0">Total ini menjadi modal awal untuk laporan akhir kas nanti.</p>' : `<div class="grid2">${d.awal ? `<div class="f"><span>Modal awal (dari awal kas)</span><div class="input" style="display:flex;align-items:center;background:var(--line-2)" data-openro>${rupiah(d.awal.cash_total)}</div><span class="hint">Dihitung pukul ${fmtTime(d.awal.updated || d.awal.created)}. Ubah lewat tab Awal kas.</span><input type="hidden" name="opening_cash" value="${d.awal.cash_total}"></div>` : field('Modal awal di laci (Rp)', 'opening_cash', r.opening_cash ? String(r.opening_cash) : '', { numeric: true, placeholder: 'mis. 200000', hint: 'Awal kas hari ini belum diisi, jadi ketik modal awalnya di sini.' })}${field('Uang keluar dari laci (Rp)', 'cash_out', r.cash_out ? String(r.cash_out) : '', { numeric: true, placeholder: 'mis. beli air, parkir', hint: 'Pengeluaran yang diambil dari laci hari ini.' })}</div>
+        <div class="tk-recon" data-recon></div>`}
       </div>
+      ${awalMode ? `<div class="panel panel-b"><label class="f" style="margin:0">Catatan (opsional)<textarea class="input" name="note" rows="2" placeholder="mis. uang kecil kurang, minta tukar">${esc(r.note || '')}</textarea></label></div>` : `
       <div class="panel panel-b stack">
         <b>2. Pengunjung hari ini</b>
         <div class="grid2">${field('Jumlah yang datang', 'visitors', r.visitors ? String(r.visitors) : '', { numeric: true, placeholder: 'orang' })}${field('Jumlah yang membeli', 'buyers', r.id ? String(r.buyers) : String(d.system.tx_count || ''), { numeric: true, placeholder: 'orang', hint: `Tercatat ${d.system.tx_count} transaksi Anda hari ini.` })}</div>
@@ -1828,15 +1833,16 @@ V.tutup = async (page) => {
         <div data-wanted class="stack" style="gap:8px"></div>
         <button type="button" class="btn sm" data-wadd style="align-self:flex-start">${icon('plus')}Tambah barang</button>
         <label class="f">Catatan lain (opsional)<textarea class="input" name="note" rows="2" placeholder="mis. hujan sore, ramai anak sekolah">${esc(r.note || '')}</textarea></label>
-      </div>
-      <div class="tk-save"><button class="btn primary bigbtn" data-save>${r.id ? 'Perbarui laporan hari ini' : 'Kirim laporan hari ini'}</button></div>
-      ${d.history.length ? `<h3 style="margin:22px 0 8px">Laporan saya sebelumnya</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th class="num">Uang dihitung</th><th class="num">Selisih</th><th class="num">Datang</th><th class="num">Beli</th></tr></thead><tbody>${d.history.map((h) => `<tr><td>${fmtDate(h.report_date)}</td><td class="num">${rupiah(h.cash_total)}</td><td class="num">${diffChip(h.diff)}</td><td class="num">${h.visitors}</td><td class="num">${h.buyers}</td></tr>`).join('')}</tbody></table></div>` : ''}
+      </div>`}
+      <div class="tk-save"><button class="btn primary bigbtn" data-save>${awalMode ? (r.id ? 'Perbarui awal kas' : 'Kirim awal kas') : (r.id ? 'Perbarui akhir kas' : 'Kirim akhir kas')}</button></div>
+      ${d.history.length ? `<h3 style="margin:22px 0 8px">Laporan saya sebelumnya</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Laporan</th><th class="num">Uang dihitung</th><th class="num">Selisih</th><th class="num">Datang</th><th class="num">Beli</th></tr></thead><tbody>${d.history.map((h) => h.kind === 'awal' ? `<tr><td>${fmtDate(h.report_date)}</td><td>Awal kas</td><td class="num">${rupiah(h.cash_total)}</td><td></td><td></td><td></td></tr>` : `<tr><td>${fmtDate(h.report_date)}</td><td>Akhir kas</td><td class="num">${rupiah(h.cash_total)}</td><td class="num">${diffChip(h.diff)}</td><td class="num">${h.visitors}</td><td class="num">${h.buyers}</td></tr>`).join('')}</tbody></table></div>` : ''}
     </div>`;
     const val = (sel) => Math.max(0, Math.floor(num($(sel, body).value)));
     const cashTotal = () => d.denoms.reduce((s, v) => s + v * val(`[data-den="${v}"]`), 0);
     const recalc = () => {
       d.denoms.forEach((v) => { $(`[data-sum="${v}"]`, body).textContent = rupiah(v * val(`[data-den="${v}"]`)); });
       const tot = cashTotal(); $('[data-ctot]', body).textContent = rupiah(tot);
+      if (awalMode) return;
       const exp = val('[name=opening_cash]') + d.system.cash_sales - val('[name=cash_out]'), diff = tot - exp;
       $('[data-recon]', body).innerHTML = `<div><span>Modal awal</span><b>${rupiah(val('[name=opening_cash]'))}</b></div><div><span>+ Penjualan tunai Anda hari ini</span><b>${rupiah(d.system.cash_sales)}</b></div><div><span>− Uang keluar</span><b>${rupiah(val('[name=cash_out]'))}</b></div><div class="tk-line"><span>Seharusnya di laci</span><b>${rupiah(exp)}</b></div><div class="tk-line"><span>Selisih</span>${diffChip(diff)}</div>`;
       const vis = val('[name=visitors]'), buy = val('[name=buyers]');
@@ -1851,7 +1857,9 @@ V.tutup = async (page) => {
         <input class="input num" data-wi="${i}" data-k="count" inputmode="numeric" value="${w.count}" aria-label="Berapa orang yang mencari" title="Berapa orang yang mencari">
         <button type="button" class="btn icon sm ghost" data-wdel="${i}" aria-label="Hapus baris">${icon('trash')}</button></div>`).join('');
     };
-    drawWanted(); recalc();
+    if (!awalMode) drawWanted();
+    recalc();
+    $('.tk-kind', body).onclick = (e) => { const b = e.target.closest('[data-kind]'); if (b && b.dataset.kind !== kind) drawForm(b.dataset.kind); };
     body.oninput = (e) => {
       const w = e.target.closest('[data-wi]'); if (w) { wanted[+w.dataset.wi][w.dataset.k] = w.dataset.k === 'count' ? Math.max(1, Math.floor(num(w.value)) || 1) : w.value; return; }
       recalc();
@@ -1867,27 +1875,38 @@ V.tutup = async (page) => {
       if (b.dataset.wadd !== undefined) { wanted.push({ item: '', detail: '', count: 1 }); drawWanted(); $$('[data-k=item]', body).pop().focus(); }
     };
     $('[data-save]', body).onclick = async (e) => {
+      if (awalMode) {
+        if (!cashTotal() && !(await confirmBox('Awal kas Rp0?', 'Belum ada pecahan yang diisi. Tetap kirim?', 'Tetap kirim', false))) return;
+        const btn = e.currentTarget; btn.disabled = true;
+        try { const sv = await api('report_save', { kind: 'awal', cash_counts: Object.fromEntries(d.denoms.map((v) => [v, val(`[data-den="${v}"]`)])), note: $('[name=note]', body).value }); toast('Awal kas tersimpan', rupiah(sv.cash_total) + ' di laci', 'ok'); drawForm('awal'); }
+        catch (ex) { toastErr(ex); btn.disabled = false; }
+        return;
+      }
       const vis = val('[name=visitors]'), buy = val('[name=buyers]');
       if (!cashTotal() && !(await confirmBox('Uang di laci Rp0?', 'Belum ada pecahan yang diisi. Tetap kirim laporan?', 'Tetap kirim', false))) return;
       if (buy > vis) { toast('Periksa jumlah pengunjung', 'Yang membeli tidak boleh lebih banyak dari yang datang.', 'err'); return; }
       const btn = e.currentTarget; btn.disabled = true;
       const payload = {
         cash_counts: Object.fromEntries(d.denoms.map((v) => [v, val(`[data-den="${v}"]`)])),
-        opening_cash: val('[name=opening_cash]'), cash_out: val('[name=cash_out]'), visitors: vis, buyers: buy,
+        kind: 'akhir', opening_cash: val('[name=opening_cash]'), cash_out: val('[name=cash_out]'), visitors: vis, buyers: buy,
         reasons: d.reasons.map((x) => ({ reason: x, count: val(`[data-reason="${x}"]`), note: x === 'Lainnya' ? ($('[data-rnote]', body).value || '') : '' })),
         wanted: wanted.filter((w) => w.item.trim()), note: $('[name=note]', body).value,
       };
-      try { const saved = await api('report_save', payload); toast('Laporan tersimpan', `Uang ${rupiah(saved.cash_total)} · selisih ${saved.diff >= 0 ? '+' : '−'}${rupiah(Math.abs(saved.diff))}`, 'ok'); drawForm(); }
+      try { const saved = await api('report_save', payload); toast('Akhir kas tersimpan', `Uang ${rupiah(saved.cash_total)} · selisih ${saved.diff >= 0 ? '+' : '−'}${rupiah(Math.abs(saved.diff))}`, 'ok'); drawForm('akhir'); }
       catch (ex) { toastErr(ex); btn.disabled = false; }
     };
   }
-
   async function drawRekap() {
     const today = ymd(), first = today.slice(0, 8) + '01';
     body.innerHTML = `<div class="toolbar"><label class="f" style="margin:0">Dari<input type="date" class="input" data-from value="${first}"></label><label class="f" style="margin:0">Sampai<input type="date" class="input" data-to value="${today}"></label><span class="grow"></span><button class="btn" data-xls>${icon('download')}Unduh Excel</button></div><div data-out><div class="empty">Memuat…</div></div>`;
     let rows = [];
     const load = async () => {
-      try { rows = await api('report_list', { from: $('[data-from]', body).value, to: $('[data-to]', body).value }); } catch (e) { toastErr(e); return; }
+      let all = []; try { all = await api('report_list', { from: $('[data-from]', body).value, to: $('[data-to]', body).value }); } catch (e) { toastErr(e); return; }
+      // satu baris per kasir per hari: akhir kas + awal kasnya; awal kas tanpa akhir = belum tutup
+      const aw = new Map(all.filter((r) => r.kind === 'awal').map((r) => [r.report_date + '|' + r.user_id, r]));
+      rows = all.filter((r) => r.kind !== 'awal').map((r) => ({ ...r, awal: aw.get(r.report_date + '|' + r.user_id) || null }));
+      const closed = new Set(rows.map((r) => r.report_date + '|' + r.user_id));
+      const open = [...aw.values()].filter((a) => !closed.has(a.report_date + '|' + a.user_id));
       const sum = (k) => rows.reduce((s, r) => s + (r[k] || 0), 0);
       const vis = sum('visitors'), buy = sum('buyers');
       const rs = new Map(); rows.forEach((r) => (r.reasons || []).forEach((x) => rs.set(x.reason, (rs.get(x.reason) || 0) + x.count)));
@@ -1895,13 +1914,14 @@ V.tutup = async (page) => {
       const rTop = [...rs.entries()].sort((a, b) => b[1] - a[1]), rMax = rTop.length ? rTop[0][1] : 1;
       const wTop = [...ws.values()].sort((a, b) => b.count - a.count).slice(0, 15);
       const minus = rows.filter((r) => r.diff < 0);
-      $('[data-out]', body).innerHTML = rows.length ? `<div class="stats">${stat('Pengunjung', fmtNum(vis) + ' orang', `${fmtNum(buy)} membeli`, 'hero')}${stat('Tingkat membeli', vis ? Math.round(buy / vis * 100) + '%' : '–', `${fmtNum(vis - buy)} tidak membeli`)}${stat('Total selisih kas', (sum('diff') >= 0 ? '+' : '−') + rupiah(Math.abs(sum('diff'))), minus.length ? `${minus.length} laporan kurang` : 'tidak ada yang kurang')}</div>
+      const openHtml = open.map((a) => `<tr class="muted"><td>${fmtDate(a.report_date)}</td><td>${esc(a.user_name)}</td><td class="num">${rupiah(a.cash_total)}</td><td colspan="5"><span class="chip amber">Belum ada akhir kas</span></td><td></td></tr>`).join('');
+      $('[data-out]', body).innerHTML = rows.length || open.length ? `<div class="stats">${stat('Pengunjung', fmtNum(vis) + ' orang', `${fmtNum(buy)} membeli`, 'hero')}${stat('Tingkat membeli', vis ? Math.round(buy / vis * 100) + '%' : '–', `${fmtNum(vis - buy)} tidak membeli`)}${stat('Total selisih kas', (sum('diff') >= 0 ? '+' : '−') + rupiah(Math.abs(sum('diff'))), minus.length ? `${minus.length} laporan kurang` : 'tidak ada yang kurang')}</div>
         <div class="grid2" style="align-items:start;margin-bottom:14px">
           <div class="panel panel-b"><b>Alasan tidak membeli</b>${rTop.length ? `<div class="tk-bars">${rTop.map(([k, n]) => `<div><span>${esc(k)}</span><i style="--w:${Math.max(4, n / rMax * 100)}%"></i><b>${n}</b></div>`).join('')}</div>` : '<p class="muted small">Belum ada data.</p>'}</div>
           <div class="panel panel-b"><b>Barang paling dicari tapi tidak ada</b>${wTop.length ? `<ol class="tk-want-list">${wTop.map((w) => `<li><b>${esc(w.item)}</b> <span class="chip">${w.count} orang</span>${w.details.size ? `<div class="small muted">${esc([...w.details].slice(0, 6).join(', '))}</div>` : ''}</li>`).join('')}</ol>` : '<p class="muted small">Belum ada data.</p>'}</div>
         </div>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Kasir</th><th class="num">Uang dihitung</th><th class="num">Seharusnya</th><th class="num">Selisih</th><th class="num">Datang</th><th class="num">Beli</th><th></th></tr></thead><tbody>
-        ${rows.map((r) => `<tr><td>${fmtDate(r.report_date)}</td><td>${esc(r.user_name)}</td><td class="num">${rupiah(r.cash_total)}</td><td class="num">${rupiah(r.expected)}</td><td class="num">${diffChip(r.diff)}</td><td class="num">${r.visitors}</td><td class="num">${r.buyers}</td><td><button class="btn sm" data-detail="${r.id}">Detail</button></td></tr>`).join('')}</tbody></table></div>`
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Kasir</th><th class="num">Awal kas</th><th class="num">Akhir kas</th><th class="num">Seharusnya</th><th class="num">Selisih</th><th class="num">Datang</th><th class="num">Beli</th><th></th></tr></thead><tbody>
+        ${openHtml}${rows.map((r) => `<tr><td>${fmtDate(r.report_date)}</td><td>${esc(r.user_name)}</td><td class="num">${r.awal ? rupiah(r.awal.cash_total) : `<span class="muted" title="Modal awal diketik di akhir kas">${rupiah(r.opening_cash)}*</span>`}</td><td class="num">${rupiah(r.cash_total)}</td><td class="num">${rupiah(r.expected)}</td><td class="num">${diffChip(r.diff)}</td><td class="num">${r.visitors}</td><td class="num">${r.buyers}</td><td><button class="btn sm" data-detail="${r.id}">Detail</button></td></tr>`).join('')}</tbody></table></div>`
         : emptyState('Belum ada laporan tutup kasir pada rentang tanggal ini.');
     };
     body.onchange = (e) => { if (e.target.matches('[data-from],[data-to]')) load(); };
@@ -1909,8 +1929,9 @@ V.tutup = async (page) => {
       const b = e.target.closest('[data-detail]'); if (b) detail(rows.find((r) => r.id === +b.dataset.detail));
       if (e.target.closest('[data-xls]')) downloadXLS(`laporan-tutup-kasir-${ymd()}.xls`, rows, [
         { label: 'Tanggal', key: 'report_date' }, { label: 'Kasir', key: 'user_name' },
-        ...[100000, 50000, 20000, 10000, 5000, 2000, 1000].map((v) => ({ label: 'Rp' + fmtNum(v) + ' (lembar)', get: (r) => (r.cash_counts || {})[v] || 0 })),
-        { label: 'Uang dihitung', key: 'cash_total' }, { label: 'Modal awal', key: 'opening_cash' }, { label: 'Penjualan tunai', key: 'cash_sales' }, { label: 'Uang keluar', key: 'cash_out' },
+        ...[100000, 50000, 20000, 10000, 5000, 2000, 1000].map((v) => ({ label: 'Awal Rp' + fmtNum(v), get: (r) => (r.awal ? (r.awal.cash_counts || {})[v] || 0 : '') })),
+        ...[100000, 50000, 20000, 10000, 5000, 2000, 1000].map((v) => ({ label: 'Akhir Rp' + fmtNum(v), get: (r) => (r.cash_counts || {})[v] || 0 })),
+        { label: 'Awal kas (dihitung)', get: (r) => (r.awal ? r.awal.cash_total : '') }, { label: 'Akhir kas (dihitung)', key: 'cash_total' }, { label: 'Modal awal dipakai', key: 'opening_cash' }, { label: 'Penjualan tunai', key: 'cash_sales' }, { label: 'Uang keluar', key: 'cash_out' },
         { label: 'Seharusnya', key: 'expected' }, { label: 'Selisih', key: 'diff' }, { label: 'Datang', key: 'visitors' }, { label: 'Membeli', key: 'buyers' },
         { label: 'Alasan tidak membeli', get: (r) => (r.reasons || []).map((x) => `${x.reason}${x.note ? ' (' + x.note + ')' : ''}: ${x.count}`).join('; ') },
         { label: 'Barang dicari', get: (r) => (r.wanted || []).map((x) => `${x.item}${x.detail ? ' ' + x.detail : ''} (${x.count})`).join('; ') },
@@ -1922,7 +1943,8 @@ V.tutup = async (page) => {
   function detail(r) {
     modal({ title: `${r.user_name} · ${fmtDate(r.report_date)}`, body: `<div class="stack">
       <div class="tbl-wrap"><table class="tbl"><tbody>${Object.entries(r.cash_counts || {}).sort((a, b) => b[0] - a[0]).filter(([, n]) => n).map(([v, n]) => `<tr><td>${rupiah(+v)}</td><td class="num">× ${n}</td><td class="num">${rupiah(v * n)}</td></tr>`).join('') || '<tr><td class="muted">Tidak ada uang tercatat</td></tr>'}
-      <tr><td><b>Uang dihitung</b></td><td></td><td class="num"><b>${rupiah(r.cash_total)}</b></td></tr></tbody></table></div>
+      <tr><td><b>Akhir kas</b></td><td></td><td class="num"><b>${rupiah(r.cash_total)}</b></td></tr></tbody></table></div>
+      ${r.awal ? `<p class="small" style="margin:0">Awal kas pukul ${fmtTime(r.awal.updated || r.awal.created)}: <b>${rupiah(r.awal.cash_total)}</b> (${Object.entries(r.awal.cash_counts || {}).filter(([, n]) => n).sort((a, b) => b[0] - a[0]).map(([v, n]) => `${rupiah(+v)}×${n}`).join(', ') || '-'})</p>` : '<p class="small muted" style="margin:0">Tanpa laporan awal kas; modal awal diketik saat tutup.</p>'}
       <div class="tk-recon"><div><span>Modal awal</span><b>${rupiah(r.opening_cash)}</b></div><div><span>+ Penjualan tunai (${r.tx_count} transaksi)</span><b>${rupiah(r.cash_sales)}</b></div><div><span>− Uang keluar</span><b>${rupiah(r.cash_out)}</b></div><div class="tk-line"><span>Seharusnya</span><b>${rupiah(r.expected)}</b></div><div class="tk-line"><span>Selisih</span>${diffChip(r.diff)}</div></div>
       <p style="margin:0">Datang <b>${r.visitors}</b> · membeli <b>${r.buyers}</b>${r.visitors ? ` (${Math.round(r.buyers / r.visitors * 100)}%)` : ''}</p>
       ${(r.reasons || []).length ? `<div><b>Alasan tidak membeli</b><ul style="margin:6px 0 0;padding-left:18px">${r.reasons.map((x) => `<li>${esc(x.reason)}${x.note ? ': ' + esc(x.note) : ''} <b>(${x.count})</b></li>`).join('')}</ul></div>` : ''}
