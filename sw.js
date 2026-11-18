@@ -1,32 +1,52 @@
-/* Service worker: membuat aplikasi tetap terbuka walau sinyal hilang.
-   Hemat kuota: saat versi naik hanya berkas inti (±130 KB terkompresi) yang diunduh ulang.
-   Pustaka besar (Excel, template Word/Excel, halaman admin) baru disimpan saat pertama kali dipakai. */
-const CACHE = 'sakti-v68';
-const PUSTAKA = 'sakti-pustaka-1';   // berkas bernama-versi (vendor/, fonts/): disimpan sekali, tidak diunduh ulang tiap versi
-// berkas lain (gambar latar, docx.js, dinas.js, admin, kuis) tetap tersimpan otomatis saat pertama kali dibuka
-const INTI = ['./', 'index.html', 'input.html', 'tema.css', 'config.js', 'common.js', 'excel.js', 'rkpicker.js', 'manifest-input.json', 'manifest-dashboard.json', 'icons/input-192.png', 'icons/dashboard-192.png', 'img/logo-sakti.svg', 'img/karakter-perempuan.webp', 'img/karakter-laki.webp'];
-const PUSTAKA_INTI = ['vendor/supabase-js-2.119.0.js', 'fonts/nunito.woff2'];
-const tetap = u => /\/(vendor|fonts)\//.test(u.pathname);
-
-self.addEventListener('install', e => {
-  e.waitUntil(Promise.all([
-    caches.open(CACHE).then(c => c.addAll(INTI.map(f => new Request(f, { cache: 'reload' })))),
-    caches.open(PUSTAKA).then(async c => { for (const f of PUSTAKA_INTI) if (!(await c.match(f))) await c.add(f); })
-  ]).then(() => self.skipWaiting()));
+/* Service worker Sofeeya POS — membuat aplikasi bisa diinstal & cepat dibuka.
+   Data (api/) selalu diambil langsung dari server, tidak pernah disimpan di cache. */
+const VERSION = 'sofeeya-v34';
+const ASSETS = [
+  './', 'index.html', 'absen.html', 'cek-stok.html', 'update-gambar.html', 'manifest.json',
+  'assets/css/app.css?v=20', 'assets/js/core.js?v=20', 'assets/js/promo.js?v=20', 'assets/js/qrlib.js?v=20',
+  'assets/js/qris.js?v=20', 'assets/js/app.js?v=20', 'assets/js/views.js?v=20', 'assets/js/solo.js?v=20',
+  'assets/img/icon-192.png', 'assets/img/icon-512.png', 'assets/img/icon-maskable-512.png', 'assets/img/apple-touch-icon.png', 'assets/img/favicon.png', 'assets/img/badge-96.png', 'assets/fonts/lora-variable.ttf',
+];
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(VERSION).then((c) => Promise.all(ASSETS.map((a) => c.add(a).catch(() => null)))).then(() => self.skipWaiting()));
 });
-self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE && k !== PUSTAKA).map(k => caches.delete(k)))).then(() => self.clients.claim()));
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });
-self.addEventListener('fetch', e => {
-  const u = new URL(e.request.url);
-  // Hanya berkas aplikasi yang disimpan; data database selalu langsung ke server
-  if (e.request.method !== 'GET' || u.origin !== location.origin) return;
-  // Pustaka & huruf bernama-versi: ambil dari simpanan dulu (lebih cepat), unduh hanya bila belum ada
-  if (tetap(u)) {
-    e.respondWith(caches.open(PUSTAKA).then(c => c.match(e.request, { ignoreSearch: true }).then(r => r || fetch(e.request).then(res => { if (res.ok) c.put(e.request, res.clone()); return res; }))));
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  const url = new URL(req.url);
+  if (url.origin === location.origin && url.pathname.includes('/api/')) return; // data selalu online
+  if (url.origin === location.origin && /\/(katalog|uploads\/katalog)\//.test(url.pathname)) return; // website publik: tidak lewat cache aplikasi
+  if (req.mode === 'navigate') { // halaman: utamakan versi terbaru, cadangan dari cache saat offline
+    e.respondWith(fetch(req).then((r) => { const cp = r.clone(); caches.open(VERSION).then((c) => c.put(req, cp)); return r; })
+      .catch(() => caches.match(req).then((r) => r || caches.match('index.html'))));
     return;
   }
-  // Berkas aplikasi: jaringan dulu & selalu cek versi terbaru ke server, pakai simpanan bila offline
-  e.respondWith(fetch(new Request(e.request, { cache: 'no-cache' })).then(r => { if (r.ok) { const c = r.clone(); caches.open(CACHE).then(ca => ca.put(e.request, c)); } return r; })
-    .catch(() => caches.match(e.request, { ignoreSearch: true }).then(r => r || caches.match('index.html'))));
+  e.respondWith(caches.match(req).then((hit) => {
+    const net = fetch(req).then((r) => { if (r && (r.ok || r.type === 'opaque')) { const cp = r.clone(); caches.open(VERSION).then((c) => c.put(req, cp)); } return r; }).catch(() => hit);
+    return hit || net;
+  }));
 });
+
+// ---------------------------------------------------------------- notifikasi transaksi di HP pemilik
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (x) { d = { title: 'Transaksi baru', body: e.data ? e.data.text() : '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Transaksi baru', {
+    body: d.body || 'Buka aplikasi untuk melihat detail.', tag: d.tag || 'tx', renotify: true,
+    icon: 'assets/img/icon-192.png', badge: 'assets/img/badge-96.png', 'assets/fonts/lora-variable.ttf', timestamp: d.ts || Date.now(),
+    vibrate: [120, 60, 120], data: { url: d.url || './#laporan' },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) { if (c.url.startsWith(self.registration.scope) && 'focus' in c) { if ('navigate' in c) c.navigate(url).catch(() => {}); return c.focus(); } }
+    return self.clients.openWindow(url);
+  }));
+});
+// browser memperbarui langganan sendiri (jarang) -> daftarkan ulang lewat aplikasi saat dibuka
+self.addEventListener('pushsubscriptionchange', () => {});
