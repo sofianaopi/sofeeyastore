@@ -61,6 +61,16 @@ Memori disimpan per perangkat & per akun kasir. Jika browser dibersihkan (hapus 
 
 \* sesuai izin di akun pengguna. Alamat lama (mis. `#promo`, `#printer`) otomatis diarahkan ke menu baru.
 
+## Halaman Masuk baru (versi 37)
+
+Halaman Masuk bergaya kartu ponsel: karakter kasir mengintip di atas form, ikon bulat untuk email dan kata sandi, tombol lihat sandi, serta tombol cepat Absen, Cek stok, Foto produk, dan Katalog. Lupa sandi: admin mengatur ulang dari menu Pengguna.
+
+## Tampilan clay 3D pink-ungu (versi 35)
+
+Semua menu memakai tampilan baru: sidebar ungu, kartu pastel, tombol timbul 3D, sudut bulat, dan huruf Nunito. Gayanya ada di `assets/css/clay.css`; bila file ini dihapus, aplikasi kembali ke tampilan lama.
+
+**Karakter/maskot:** `assets/img/maskot.webp` (wajah, untuk sidebar dengan sapaan "Halo, nama!") dan `assets/img/maskot-full.webp` (setengah badan, untuk halaman Masuk). Ganti kedua file ini untuk mengganti karakter. Bila file tidak ada, tempatnya disembunyikan.
+
 ## Tutup kasir — awal kas & akhir kas (versi 34)
 
 Laporan kini **dua kali sehari** per kasir:

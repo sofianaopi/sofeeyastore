@@ -110,27 +110,45 @@ const App = {
   renderLogin() {
     document.body.classList.remove('in-kasir', 'rail-open', 'cart-open'); this.applyLayout();
     const name = this.settings.store_name || 'Sofeeya Store';
+    const STAR = '<svg viewBox="0 0 24 24"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.2-6.2 3.2L7 14.2 2 9.3l6.9-1z"/></svg>';
+    const PLANT = `<svg viewBox="0 0 120 220" aria-hidden="true"><defs><linearGradient id="lgL" x1="0" x2="1"><stop offset="0" stop-color="#9BC07A"/><stop offset="1" stop-color="#5E8E47"/></linearGradient><linearGradient id="lgP" x1="0" x2="1"><stop offset="0" stop-color="#E9C9A3"/><stop offset=".6" stop-color="#D8AE80"/><stop offset="1" stop-color="#BF9165"/></linearGradient></defs>
+      <path d="M62 150C60 110 58 70 64 20" stroke="#5E8E47" stroke-width="4" fill="none" stroke-linecap="round"/>
+      ${[[64, 30, -38], [60, 52, 40], [62, 74, -40], [58, 96, 42], [60, 118, -38], [60, 138, 40]].map(([x, y, r]) => `<ellipse cx="${x + (r < 0 ? -16 : 16)}" cy="${y}" rx="18" ry="9" transform="rotate(${r} ${x + (r < 0 ? -16 : 16)} ${y})" fill="url(#lgL)"/>`).join('')}
+      <path d="M26 150h72l-8 62a8 8 0 0 1-8 7H42a8 8 0 0 1-8-7z" fill="url(#lgP)"/><rect x="22" y="144" width="80" height="14" rx="7" fill="#E7C29A"/></svg>`;
+    const FLOWER = `<svg viewBox="0 0 120 200" aria-hidden="true"><defs><radialGradient id="lgF" cx=".35" cy=".3"><stop offset="0" stop-color="#FFD2DF"/><stop offset="1" stop-color="#F48BA8"/></radialGradient><linearGradient id="lgQ" x1="0" x2="1"><stop offset="0" stop-color="#F7B9C4"/><stop offset=".6" stop-color="#EE9AAB"/><stop offset="1" stop-color="#D97C90"/></linearGradient></defs>
+      <path d="M60 120V64" stroke="#5E8E47" stroke-width="4"/><ellipse cx="44" cy="104" rx="16" ry="7" transform="rotate(-30 44 104)" fill="#7FAE5F"/><ellipse cx="76" cy="100" rx="16" ry="7" transform="rotate(30 76 100)" fill="#7FAE5F"/>
+      ${[0, 60, 120, 180, 240, 300].map((r) => `<ellipse cx="60" cy="40" rx="11" ry="17" transform="rotate(${r} 60 58)" fill="url(#lgF)"/>`).join('')}<circle cx="60" cy="58" r="10" fill="#FFC94D"/>
+      <path d="M28 124h64l-7 66a8 8 0 0 1-8 7H43a8 8 0 0 1-8-7z" fill="url(#lgQ)"/><rect x="24" y="118" width="72" height="14" rx="7" fill="#F4A9B8"/></svg>`;
     $('#app').innerHTML = `
-    <div class="login">
-      <div class="login-art">
-        <div class="brandmark" style="padding:0"><div class="logo" style="background:#fff;color:var(--brand)">${esc(name[0] || 'S')}</div><div><b>${esc(name)}</b><span style="color:rgba(255,255,255,.75)">Kasir & stok toko</span></div></div>
-        <div><h1>Kasir, stok, dan member toko dalam satu layar.</h1><p>Scan barang, terapkan promo otomatis, cetak struk, dan pantau omzet harian dari HP maupun komputer.</p></div>
-        <p class="small" style="opacity:.6;position:relative">© ${new Date().getFullYear()} ${esc(name)}</p>
+    <div class="login lg">
+      <i class="lg-cloud c1"></i><i class="lg-cloud c2"></i><i class="lg-star s1">${STAR}</i><i class="lg-star s2">${STAR}</i><i class="lg-star s3">${STAR}</i><i class="lg-star s4">${STAR}</i><i class="lg-hill"></i>
+      <div class="lg-intro">
+        <div class="brandmark" style="padding:0"><div class="logo">${esc(name[0] || 'S')}</div><div><b>${esc(name)}</b><span>Kasir & stok toko</span></div></div>
+        <h1>Masuk<br>Aplikasi Kasir<br><em>${esc(name)}</em></h1>
+        <hr>
+        <p>Silakan masuk untuk melanjutkan jualan, cek stok, dan laporan hari ini.</p>
       </div>
-      <div class="login-form">
-        <form id="loginForm" class="stack" autocomplete="on">
-          <div><h1>Masuk</h1><p class="muted" style="margin:4px 0 0">Gunakan akun yang diberikan admin toko.</p></div>
-          ${field('Email', 'email', '', { type: 'email', placeholder: 'nama@toko.com', attrs: 'autocomplete="username" required' })}
-          <label class="f">Kata sandi<div style="position:relative"><input class="input" name="password" type="password" required autocomplete="current-password" style="padding-right:42px"><button type="button" class="btn ghost sm icon" data-eye style="position:absolute;right:4px;top:4px" aria-label="Tampilkan sandi">${icon('search')}</button></div></label>
-          <p class="danger small bold hidden" data-err></p>
-          <button class="btn primary" style="height:46px">Masuk</button>
-          <div class="login-links">
-            <a href="absen.html">${icon('finger')}<div>Absen pegawai<span>Absen datang & pulang dari WiFi toko</span></div></a>
-            <a href="cek-stok.html">${icon('clipboard')}<div>Cek stok barang<span>Untuk petugas yang diberi akses</span></div></a>
-            <a href="update-gambar.html">${icon('camera')}<div>Update gambar produk<span>Untuk pegawai: foto barang untuk website</span></div></a>
-            <a href="katalog/">${icon('produk')}<div>Katalog &amp; harga<span>Untuk pembeli: lihat koleksi dan pesan via WhatsApp</span></div></a>
-          </div>
-        </form>
+      <div class="lg-stage">
+        <i class="lg-plant">${PLANT}</i><i class="lg-flower">${FLOWER}</i>
+        <div class="lg-phone">
+          <div class="lg-hi"><span class="lg-heart"></span><h2>Selamat Datang!</h2></div>
+          <img class="lg-peek" src="assets/img/maskot-full.webp" alt="" onerror="this.remove()"><span class="lg-wave">hai</span>
+          <form id="loginForm" class="lg-card" autocomplete="on">
+            <label class="lg-in"><i>${icon('user')}</i><input name="email" type="email" placeholder="Email" autocomplete="username" required aria-label="Email"></label>
+            <label class="lg-in"><i>${icon('lock')}</i><input name="password" type="password" placeholder="Kata sandi" autocomplete="current-password" required aria-label="Kata sandi"><button type="button" data-eye aria-label="Tampilkan sandi">${icon('eye')}</button></label>
+            <p class="lg-forgot">Lupa kata sandi? Minta admin toko mengatur ulang.</p>
+            <p class="danger small bold hidden" data-err></p>
+            <button class="btn primary lg-go">Masuk</button>
+            <div class="lg-or"><span>atau buka</span></div>
+            <div class="lg-quick">
+              <a href="absen.html"><i>${icon('finger')}</i>Absen</a>
+              <a href="cek-stok.html"><i>${icon('clipboard')}</i>Cek stok</a>
+              <a href="update-gambar.html"><i>${icon('camera')}</i>Foto produk</a>
+              <a href="katalog/"><i>${icon('produk')}</i>Katalog</a>
+            </div>
+            <p class="lg-foot">© ${new Date().getFullYear()} ${esc(name)}</p>
+          </form>
+        </div>
       </div>
     </div>`;
     const f = $('#loginForm');
@@ -158,6 +176,7 @@ const App = {
     $('#app').innerHTML = `
     <div class="shell">
       <aside class="rail">
+        <img class="mascot" src="assets/img/maskot.webp" alt="" onerror="this.remove()"><div class="hello">Halo, ${esc((u.name || '').split(' ')[0])}!</div>
         <div class="brandmark" data-railtoggle title="Menu"><div class="logo">${esc(name[0] || 'S')}</div><div><b>${esc(name)}</b><span>${new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div></div>
         <nav class="nav">${nav.map((n) => n.sep ? '<div class="sep"></div>' : `<a href="#${n.id}" data-nav="${n.id}">${icon(n.icon)}<span>${esc(n.label)}</span>${n.id === 'laporan' ? '<span class="badge hidden" data-txbadge></span>' : ''}${n.id === 'produk' ? '<span class="badge hidden" data-chkbadge></span>' : ''}</a>`).join('')}
         </nav>

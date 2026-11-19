@@ -31,7 +31,9 @@ function bindPeriod(root, onChange) {
   f.onchange = t.onchange = () => { $$('[data-pr]', box).forEach((b) => b.classList.remove('on')); if (f.value && t.value) onChange(f.value, t.value); };
   return { set, get: () => [f.value, t.value] };
 }
-const stat = (k, v, d = '', cls = '') => `<div class="stat ${cls}"><div class="k">${esc(k)}</div><div class="v">${v}</div>${d ? `<div class="d">${d}</div>` : ''}</div>`;
+const STAT_IC = [[/omzet|pendapatan|penjualan|nilai|belanja|diterima|uang|kas|beban|laba|keuntungan|kerugian|modal|komisi/i, 'wallet'], [/transaksi|terjual|dicatat/i, 'cart'], [/member|pengunjung|hadir|masuk kerja/i, 'member'], [/retur|tukar|kembali/i, 'rotate'], [/promo|diskon|kode|otomatis/i, 'promo'], [/stok|barang|model|varian|reject|habis/i, 'box'], [/foto|website|tampil/i, 'camera'], [/terlambat|tidak masuk|jam/i, 'clock'], [/membeli|tingkat/i, 'star']];
+const statIcon = (k) => (STAT_IC.find(([re]) => re.test(k)) || [0, 'star'])[1];
+const stat = (k, v, d = '', cls = '') => `<div class="stat ${cls}"><i class="st-ic" aria-hidden="true">${icon(statIcon(k))}</i><div class="k">${esc(k)}</div><div class="v">${v}</div>${d ? `<div class="d">${d}</div>` : ''}</div>`;
 function crudModal({ title, fields, data = {}, onSave, size = '' }) {
   const m = modal({ title, size, body: `<div class="stack" data-f>${fields}</div>`, foot: `<button class="btn" data-cancel>Batal</button><button class="btn primary" data-save>Simpan</button>` });
   m.$('[data-cancel]').onclick = () => m.close();
